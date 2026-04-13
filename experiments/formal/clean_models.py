@@ -152,7 +152,7 @@ def _predict_sequence_model(
     loader = DataLoader(ds, batch_size=cfg.batch_size, shuffle=False)
     model.eval()
     probs: list[float] = []
-    with torch.no_grad():
+    with torch.inference_mode():
         for x, _ in loader:
             x = x.to(cfg.device)
             logits = model(x)
@@ -305,14 +305,20 @@ class CodeBERTModel:
         return self
 
     def predict_proba(self, texts: list[str]) -> np.ndarray:
-        ds = CodeBERTDataset(texts, [0] * len(texts), self.tokenizer, self.cfg.max_len)
-        loader = DataLoader(ds, batch_size=self.cfg.batch_size, shuffle=False)
         self.model.eval()
         probs: list[float] = []
-        with torch.no_grad():
-            for batch in loader:
-                input_ids = batch["input_ids"].to(self.cfg.device)
-                attention_mask = batch["attention_mask"].to(self.cfg.device)
+        with torch.inference_mode():
+            for start in range(0, len(texts), self.cfg.batch_size):
+                batch_texts = texts[start : start + self.cfg.batch_size]
+                enc = self.tokenizer(
+                    batch_texts,
+                    truncation=True,
+                    padding="max_length",
+                    max_length=self.cfg.max_len,
+                    return_tensors="pt",
+                )
+                input_ids = enc["input_ids"].to(self.cfg.device, non_blocking=self.cfg.device == "cuda")
+                attention_mask = enc["attention_mask"].to(self.cfg.device, non_blocking=self.cfg.device == "cuda")
                 logits = self.model(input_ids, attention_mask)
                 probs.extend(torch.sigmoid(logits).cpu().numpy().tolist())
         return np.asarray(probs, dtype=float)
