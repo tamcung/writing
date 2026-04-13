@@ -5,7 +5,7 @@
 - 论文类型：中文硕士毕业论文
 - 学科方向：网络空间安全
 - 最终题目：面向语义保持变形的鲁棒 SQL 注入检测方法研究与实现
-- 方法主角：`RSQLi-PR`（以 `pair_proj_ce` 为核心）
+- 方法主角：`pair_proj_ce`
 - 扩展机制：`pair_canonical`
 - 正文主实验主角：`CodeBERT`
 - 强对照：`TextCNN`
@@ -13,7 +13,7 @@
 - 系统部分保留
 - 数据集最终方案：
   - 主训练/同分布：`SQLiV3_clean`
-  - 主跨变形：`semantic family holdout`
+  - 主跨变形：`targeted_official_wafamole`
   - 真实变形补充：`SQLiV5`
   - 主外部验证：`ModSec-Learn-cleaned`
   - 补充外部验证：`web-attacks-long`
@@ -25,10 +25,10 @@
 
 ## 下一步
 
-1. 让用户运行 experiment1 的正式 `clean_ce` 主结果：`CodeBERT / TextCNN / BiLSTM / word-SVC`
-2. experiment1 主表同时报告 `mixed` 与 `mixed_hard`
-3. 重新设计 `boolean_equivalent`，避免语义风险
-4. 基于 experiment1 结果再进入后续 paired / RSQLi-PR 实验
+1. 等云端 CodeBERT full-budget 结果完成后，替换实验一中的 CodeBERT probe。
+2. 先跑实验二的经典模型版本：`TextCNN / BiLSTM` 上比较 `clean_ce / pair_ce / pair_proj_ce / pair_canonical`。
+3. 再单独跑实验二的 `CodeBERT` 版本，避免和经典模型混在一个长命令里。
+4. 基于实验二结果决定是否保留 `pair_canonical` 为正文方法，或只作为消融扩展。
 
 ## 已落地文件
 
@@ -45,6 +45,10 @@
 - `experiments/formal/audit_experiment1_mutation_families.py`
 - `experiments/formal/audit_experiment1_mutation_families_multi.py`
 - `experiments/formal/run_experiment1_clean_ce.py`
+- `experiments/formal/pair_data.py`
+- `experiments/formal/build_experiment2_pairs.py`
+- `experiments/formal/paired_models.py`
+- `experiments/formal/run_experiment2_pair_training_targeted.py`
 - `data/processed/formal_v3/manifest.json`
 - `data/processed/formal_v3/datasets/*.json`
 - `data/processed/formal_v3/audits/*.json`
@@ -205,10 +209,14 @@
   - `textcnn + lowercase`: clean recall `1.0000` -> mutated recall `0.1800`, attack success `0.8200`, p10 `0.2350`
   - `bilstm + lowercase`: clean recall `1.0000` -> mutated recall `0.5000`, attack success `0.5000`, p10 `0.1532`
 - 当前结论：
-  - 第一个假设已被初步验证：未经过变形鲁棒训练的检测器在 WAF-A-MoLE 式官方语义保持变形下会出现性能退化。
-  - 该结论目前是探针级证据，正式论文需要多 seed 与更大样本规模确认。
+  - 第一个假设已被正式经典模型 10-seed 结果支持：未经过变形鲁棒训练的检测器在 WAF-A-MoLE 式官方语义保持变形下会出现性能退化。
+  - CodeBERT 当前已有 3-seed 低预算结果，仍等待云端 full-budget 结果替换。
   - `word_svc` 表现相对更稳，应作为传统强基线/边界对照，而不是强行写成“大面积被打穿”。
   - 探索中过的 URL/percent encoding、自定义 `wafamole_style` 扩展、real benign hard negative 不进入实验一正式主线。
+- 经典模型 10-seed 正式结果：
+  - `word_svc`: clean recall `0.9907` -> mutated recall `0.6907`, attack success `0.3093`
+  - `textcnn`: clean recall `0.9867` -> mutated recall `0.1717`, attack success `0.8283`
+  - `bilstm`: clean recall `0.9873` -> mutated recall `0.5667`, attack success `0.4333`
 - 已落地文件：
   - `experiments/formal/targeted_sql_mutation.py` 支持 `official_wafamole`
   - `experiments/formal/run_experiment1_targeted_attack.py` 支持 `--operator-set official_wafamole`
@@ -217,3 +225,36 @@
   - 不要一次性把 `10 seeds * word_svc/textcnn/bilstm/codebert * 高预算目标搜索` 全塞进一个命令。
   - 经典模型与 CodeBERT 应拆开跑。
   - CodeBERT 的慢点主要来自目标搜索阶段大量 `predict_proba` 查询，不是普通训练本身。
+
+## 2026-04-13 实验二正式 runner
+
+- 实验目的：
+  - 在实验一的问题存在性基础上，验证配对变形训练与表示投影/规范锚定是否能提升目标导向变形下的鲁棒性。
+- 已新增：
+  - `experiments/formal/pair_data.py`
+  - `experiments/formal/build_experiment2_pairs.py`
+  - `experiments/formal/paired_models.py`
+  - `experiments/formal/run_experiment2_pair_training_targeted.py`
+  - `experiments/formal/targeted_sql_mutation.py` 中的 `random_operator_chain`
+- 已落盘：
+  - `data/derived/formal_v3/experiment2/pairs/manifest.json`
+  - `data/derived/formal_v3/experiment2/pairs/seed_*/train_pairs.json`
+  - 每个 seed `2000` 对：benign `1000` 对，SQLi `1000` 对。
+  - SQLi changed rate 范围约 `0.9900-0.9960`，平均有效链长约 `2.914-3.098`。
+- 方法对比：
+  - `clean_ce`：只用干净训练样本。
+  - `pair_ce`：对原始样本和随机官方变形样本同时做分类交叉熵。
+  - `pair_proj_ce`：在 `pair_ce` 基础上使用 projection representation 做分类。
+  - `pair_canonical`：在 `pair_proj_ce` 基础上增加变形样本向原始样本表示靠近的 canonical-anchor loss。
+- 训练对构造：
+  - SQLi 样本：使用 WAF-A-MoLE 官方 SQL 算子随机多轮变形，默认 `rounds=5`。
+  - benign 样本：只做 nuisance 级大小写/空白扰动，避免让模型把“发生变形”直接学成“恶意”。
+- 测试协议：
+  - 与实验一相同，使用 `targeted_official_wafamole` 有限预算目标导向搜索。
+  - 每个模型都接受各自的 adaptive targeted search，因此可比较 `Attack Success Rate` 与变形后 `Recall/F1/P10`。
+- smoke 验证：
+  - `TextCNN + seed=11 + attack_per_class=8 + steps=2 + candidates=4` 已跑通。
+  - `BiLSTM + seed=11 + attack_per_class=3 + steps=1 + candidates=3` 已跑通。
+  - 训练变形审计显示：`rounds=3` 的 SQLi changed rate 约 `0.99`，平均有效链长约 `1.94`；`rounds=5` 的 SQLi changed rate 约 `0.99`，平均有效链长约 `2.98`，更适合作为正式默认强度。
+  - benign nuisance changed rate 约 `0.503`。
+  - smoke 只验证流程，不作为论文结果。

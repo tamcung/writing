@@ -16,9 +16,8 @@
 
 ## 方法收敛
 
-- 主方法：`RSQLi-PR`
-  - 全称：Robust SQL Injection Detection via Paired Representation Learning
-  - 对应当前实验中的核心形态：`pair_proj_ce`
+- 主方法：`pair_proj_ce`
+  - 含义：基于配对样本的投影表示分类方法
 - 扩展机制：`pair_canonical`
   - 作为表示对齐扩展和补充实验保留
   - 不作为全文 headline
@@ -44,4 +43,3 @@
 5. 实验设计与结果分析
 6. SQL 注入检测原型系统设计与实现
 7. 总结与展望
-

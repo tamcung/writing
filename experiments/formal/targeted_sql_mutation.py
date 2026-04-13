@@ -83,6 +83,14 @@ class TargetedSearchResult:
     history: tuple[dict, ...]
 
 
+@dataclass(frozen=True)
+class RandomMutationResult:
+    source_text: str
+    mutated_text: str
+    changed: bool
+    chain: tuple[str, ...]
+
+
 def _quote_mask(text: str) -> list[bool]:
     mask = [False] * len(text)
     quote: str | None = None
@@ -439,6 +447,61 @@ def get_operator_set(name: str) -> list[SqlMutationOperator]:
     if name not in OPERATOR_SETS:
         raise KeyError(f"unknown operator set: {name}")
     return OPERATOR_SETS[name]
+
+
+def random_operator_chain(
+    source_text: str,
+    seed: int,
+    operators: Iterable[SqlMutationOperator],
+    rounds: int = 3,
+    retries: int = 8,
+    max_chars: int = 640,
+    ensure_changed: bool = True,
+) -> RandomMutationResult:
+    """Build a non-targeted mutation chain for training augmentation."""
+
+    operator_list = list(operators)
+    if not operator_list:
+        raise ValueError("operators must not be empty")
+
+    best_text = source_text
+    best_chain: tuple[str, ...] = ()
+    for attempt in range(max(1, retries)):
+        rng = random.Random(seed + attempt * 104_729)
+        current = source_text
+        chain: list[str] = []
+        for _ in range(max(1, rounds)):
+            op = rng.choice(operator_list)
+            mutated = op.fn(current, rng)
+            if mutated == current or len(mutated) > max_chars:
+                continue
+            current = mutated
+            chain.append(op.name)
+
+        if current != source_text:
+            return RandomMutationResult(
+                source_text=source_text,
+                mutated_text=current,
+                changed=True,
+                chain=tuple(chain),
+            )
+        if not ensure_changed:
+            return RandomMutationResult(
+                source_text=source_text,
+                mutated_text=current,
+                changed=False,
+                chain=tuple(chain),
+            )
+        if len(chain) > len(best_chain):
+            best_text = current
+            best_chain = tuple(chain)
+
+    return RandomMutationResult(
+        source_text=source_text,
+        mutated_text=best_text,
+        changed=best_text != source_text,
+        chain=best_chain,
+    )
 
 
 def _candidate_texts(

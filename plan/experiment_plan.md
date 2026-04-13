@@ -5,7 +5,7 @@
 本组正式实验只回答三个问题：
 
 1. 现有 SQL 注入检测器在语义保持变形和外部分布偏移下是否会显著失稳。
-2. `RSQLi-PR` 是否比普通监督训练和普通配对增强更鲁棒。
+2. `pair_proj_ce` 是否比普通监督训练和普通配对增强更鲁棒。
 3. 鲁棒性提升究竟来自“看到了更多变形样本”，还是来自“显式的表示学习约束”。
 
 ## 二、数据集收敛
@@ -32,23 +32,24 @@
   - 与 `SQLiV5` / `WAF-A-MoLE` 路线天然衔接
   - 适合作为全文统一主训练源
 
-### 2. 正文主变形基准：`semantic family holdout`
+### 2. 正文主变形基准：`targeted_official_wafamole`
 
-- 角色：主跨变形泛化测试
-- formal 构造模块：`experiments/formal/semantic_mutation.py`
-- 主变形家族：
-  - `surface_obfuscation`
-  - `numeric_repr`
-  - `string_construction`
-- 补充家族：
-  - `boolean_equivalent`
-- 正式协议：
-  - 训练时使用除 held-out 家族外的其余主家族构造 paired data
-  - 测试时只使用 held-out 家族生成语义保持变形样本
+- 角色：主语义保持变形鲁棒性测试
+- formal 构造模块：
+  - `experiments/formal/targeted_sql_mutation.py`
+  - `experiments/formal/run_experiment1_targeted_attack.py`
+  - `experiments/formal/run_experiment2_pair_training_targeted.py`
+- 变形算子来源：WAF-A-MoLE 官方 `SqlFuzzer.strategies`
+- 测试协议：
+  - 对测试集 SQLi 样本执行有限预算目标导向搜索
+  - 每轮生成多个官方算子变形候选
+  - 用当前检测器的 SQLi 概率排序
+  - 保留低置信度候选继续搜索
+  - 若 SQLi 概率低于 `0.5`，记为攻击成功
 - 选择原因：
-  - 可控
-  - 可解释
-  - 最适合支撑“未见变形泛化”这一核心论点
+  - 直接对应本文“语义保持变形绕过 ML 型 SQLi 检测器”的核心问题
+  - 比静态随机变形更能暴露模型弱点
+  - 算子来源有文献和开源工具背书，避免把自造弱变形作为主证据
 
 ### 3. 真实变形补充基准：`SQLiV5`
 
@@ -56,7 +57,7 @@
 - 角色：WAF-A-MoLE 风格真实变形测试
 - 使用方式：
   - 不作为主训练集
-  - 作为对 `semantic family holdout` 的补充验证
+  - 作为对 `targeted_official_wafamole` 的补充验证
   - 正文中强调其与 `WAF-A-MoLE` 路线的对应关系
 - 选择原因：
   - 直接对应“语义保持变形绕过”相关文献
@@ -137,6 +138,10 @@
   - `experiments/formal/raw_processing.py`
 - 当前统一变形模块：
   - `experiments/formal/semantic_mutation.py`
+  - `experiments/formal/targeted_sql_mutation.py`
+- 当前配对训练集：
+  - `data/derived/formal_v3/experiment2/pairs/seed_*/train_pairs.json`
+  - 构造脚本：`experiments/formal/build_experiment2_pairs.py`
 - 当前统一 manifest：
   - `data/processed/formal_v3/manifest.json`
 
@@ -152,17 +157,18 @@
 - `sqliv3_clean_holdout`
   - 不是独立数据集
   - 而是从 `sqliv3_clean` 按 seed 做分层抽样后切出的同分布测试视图
-- `semantic_family_holdout`
+- `targeted_official_wafamole`
   - 不是独立数据集
-  - 而是基于 `sqliv3_clean_holdout` 中的恶意样本，再施加 held-out 语义保持变形后得到的跨变形测试视图
+  - 而是基于 `sqliv3_clean_holdout` 中的恶意样本，再通过官方 WAF-A-MoLE 算子和目标导向搜索得到的变形测试视图
 
 ### 3. 训练/测试划分
 
 - 基于 `SQLiV3_clean` 做按类采样切分
 - 基于 processed 版本的 `sqliv3_clean.json` 做按类采样切分
 - 每个 seed 固定：
-  - 训练集：每类 `120`
-  - 同分布测试集：每类 `300`
+  - 训练集：每类 `1000`
+  - 验证集：每类 `200`
+  - 干净测试集：每类 `1000`
 - 说明：
   - 也便于跨 backbone 的公平比较
 
@@ -173,23 +179,24 @@
 - `x_raw_mut`
   - 对 `x_canon` 施加语义保持变形后的样本
 - 恶意样本对：
-  - 使用多轮语义保持变形构造
-  - 正式协议建议 `rounds=3`
+  - 使用 WAF-A-MoLE 官方 SQL 变形算子随机构造
+  - 正式默认 `rounds=5`
 - 良性样本对：
   - 不做 SQLi 语义变形
-  - 使用 nuisance 级表面扰动，例如大小写、URL 编码、空格表示变化
+  - 使用 nuisance 级表面扰动，例如大小写与空白表示变化
   - 目的是防止模型将“发生变形”误学成“恶意”
 
 ### 5. 变形策略使用原则
 
 - 训练时：
-  - 主实验使用除 held-out 家族外的其余主家族构造 paired data
+  - `clean_ce` 仅使用干净样本
+  - `pair_ce / pair_proj_ce / pair_canonical` 使用官方 WAF-A-MoLE 算子的随机变形样本构造训练对
 - 测试时：
-  - 主变形测试使用 held-out 家族生成跨变形测试集
+  - 主变形测试使用官方 WAF-A-MoLE 算子的目标导向搜索
   - 真实变形补充测试使用 `SQLiV5`
 - 这对应论文里的核心概念：
-  - 不是“见过同一种变形后再测同一种变形”
-  - 而是“在未见变形家族上测试泛化”
+  - 不是只比较静态增强样本
+  - 而是比较有限预算目标导向攻击下的鲁棒性
 
 ## 四、正式实验矩阵
 
@@ -205,14 +212,13 @@
   - `clean_ce`
 - 测试视图：
   - `sqliv3_clean_holdout`
-  - `semantic_family_holdout`
-  - `ModSec-Learn-cleaned`
+  - `targeted_official_wafamole`
 - 正文产出：
-  - 一张“同分布 vs 跨变形 vs 外部集”的主表
+  - 一张“变形前 vs 变形后”的问题存在性主表
 
 ### 实验 2：主方法有效性验证
 
-- 目的：证明 `RSQLi-PR` 优于普通监督和普通配对增强
+- 目的：证明 `pair_proj_ce` 优于普通监督和普通配对增强
 - 主角 backbone：
   - `CodeBERT`
 - 强对照：
@@ -222,10 +228,14 @@
 - 对比方法：
   - `clean_ce`
   - `pair_ce`
-  - `RSQLi-PR`（`pair_proj_ce`）
+  - `pair_proj_ce`
+  - `pair_canonical` 作为消融扩展
+- 测试视图：
+  - `clean_attack_matched`
+  - `targeted_official_wafamole`
 - 正文产出：
   - 一张主方法对比表
-  - 一张外部集结果图
+  - 一张目标导向攻击成功率对比表
 
 ### 实验 3：机制与消融实验
 
@@ -233,13 +243,14 @@
 - 主对象：
   - `CodeBERT`
 - 对比：
-  - `pair_ce` vs `RSQLi-PR`
-  - `RSQLi-PR` vs `pair_canonical`
+  - `pair_ce` vs `pair_proj_ce`
+  - `pair_proj_ce` vs `pair_canonical`
 - 分析点：
   - `F1`
   - `Recall`
   - `P10 SQLi probability`
-  - 不同变形家族下的表现差异
+  - `Attack Success Rate`
+  - `mean_queries`
 - 正文产出：
   - 一张消融表
   - 一张 hardest samples 置信度对比图
@@ -247,7 +258,7 @@
 
 ### 实验 4：架构泛化对比
 
-- 目的：说明 `RSQLi-PR` 的收益是否依赖 backbone
+- 目的：说明 `pair_proj_ce` 的收益是否依赖 backbone
 - 对象：
   - `BiLSTM`
   - `TextCNN`
@@ -255,7 +266,7 @@
 - 对比方法：
   - `clean_ce`
   - `pair_ce`
-  - `RSQLi-PR`
+  - `pair_proj_ce`
 - 说明：
   - `word-SVC` 只作为经典基线，不进入这一张方法消融表
 
@@ -270,13 +281,13 @@
 - 方法：
   - `clean_ce`
   - `pair_ce`
-  - `RSQLi-PR`
+  - `pair_proj_ce`
 
 ### 实验 6：系统验证实验
 
 - 目的：支撑“研究与实现”
 - 最终模型：
-  - `CodeBERT + RSQLi-PR`
+  - `CodeBERT + pair_proj_ce`
 - 内容：
   - 单条 payload 检测
   - 批量检测
@@ -288,19 +299,20 @@
 ### 正文保留
 
 - `SQLiV3_clean`
-- 三大变形家族的 semantic holdout
+- `targeted_official_wafamole`
 - `SQLiV5`
 - `ModSec-Learn-cleaned`
 - `web-attacks-long`
 - `CodeBERT / TextCNN / BiLSTM / word-SVC`
-- `clean_ce / pair_ce / RSQLi-PR`
+- `clean_ce / pair_ce / pair_proj_ce`
 - `pair_canonical` 仅作为消融扩展
 
 ### 附录或补充材料
 
 - `CharCNN`
+- 早期自定义 semantic family holdout
 - `boolean_equivalent` 单独结果
-- `WAF-A-MoLE`
+- 自定义 `wafamole_style` 扩展
 - `ai-waf-dataset`
 - 各种历史试验性对比
 
@@ -322,6 +334,7 @@
   - `Recall`
   - `Precision`
   - `P10 SQLi probability`
+  - `Attack Success Rate`
 
 ### 3. 统计检验
 
@@ -336,9 +349,8 @@
 ## 七、执行顺序
 
 1. 固定 seed 列表与统一数据过滤规则
-2. 重跑 `clean_ce` 的问题存在性实验
-3. 重跑 `CodeBERT / TextCNN / BiLSTM` 的 `clean_ce / pair_ce / RSQLi-PR`
-4. 单独补 `CodeBERT` 的 `pair_canonical` 与 `SQLiV5` 消融
-5. 构建 `ModSec-Learn-cleaned` 与 `web-attacks-long` 外部验证集
-6. 汇总成正文主表与附录表
-7. 最后基于最佳 `CodeBERT + RSQLi-PR` 做系统展示
+2. 完成 `clean_ce` 在 `targeted_official_wafamole` 下的问题存在性实验
+3. 重跑 `CodeBERT / TextCNN / BiLSTM` 的 `clean_ce / pair_ce / pair_proj_ce / pair_canonical`
+4. 单独补 `SQLiV5`、`ModSec-Learn-cleaned` 与 `web-attacks-long` 外部验证
+5. 汇总成正文主表与附录表
+6. 最后基于最佳 `CodeBERT + pair_proj_ce` 做系统展示
