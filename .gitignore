@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.DS_Store
+
+# Local environments and secrets
+.env
+.venv/
+venv/
+env/
+
+# Data and third-party checkouts are synced separately.
+data/raw/
+data/processed/
+data/derived/
+external/
+
+# Experiment outputs can be large or machine-specific.
+experiments/*.json
+experiments/**/*.json
+experiments/formal/*.json
+experiments/formal/*.partial.json
+*.tar
+*.tar.gz
+*.zip
+
+# Model checkpoints and binary artifacts
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.dump
+*.joblib
+*.pkl
