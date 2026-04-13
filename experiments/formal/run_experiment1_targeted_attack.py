@@ -135,6 +135,28 @@ def write_partial_output(
     partial_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def load_resume_state(args: argparse.Namespace) -> tuple[list[dict], list[dict], list[dict], set[tuple[int, str]], float]:
+    output_path = Path(args.output)
+    candidates = [Path(str(args.output) + ".partial.json"), output_path]
+    for path in candidates:
+        if not path.exists():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        result_rows = list(payload.get("rows", []))
+        attack_rows = list(payload.get("attack_rows", []))
+        hard_negative_rows = list(payload.get("hard_negative_rows", []))
+        completed_pairs = {
+            (int(row["seed"]), str(row["backbone"]))
+            for row in attack_rows
+            if "seed" in row and "backbone" in row
+        }
+        elapsed = float(payload.get("elapsed_seconds", 0.0))
+        print(f"Resuming from {path}: completed_pairs={len(completed_pairs)} elapsed_seconds={elapsed:.2f}")
+        return result_rows, attack_rows, hard_negative_rows, completed_pairs, elapsed
+    print("Resume requested, but no output or partial file was found. Starting from scratch.")
+    return [], [], [], set(), 0.0
+
+
 def evaluate_view(model, rows: list[dict], seed: int, backbone: str, view: str, view_kind: str) -> dict:
     texts, labels = rows_to_xy(rows)
     probs = model.predict_proba(texts)
@@ -155,6 +177,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backbones", nargs="+", default=["word_svc", "textcnn", "bilstm"])
     parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33, 44, 55, 66, 77, 88, 99, 111])
     parser.add_argument("--output", default="experiments/formal/results_experiment1_targeted_attack.json")
+    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
     parser.add_argument(
         "--operator-set",
@@ -210,6 +233,11 @@ def main() -> None:
     result_rows: list[dict] = []
     attack_rows: list[dict] = []
     hard_negative_rows: list[dict] = []
+    completed_pairs: set[tuple[int, str]] = set()
+    if args.resume:
+        result_rows, attack_rows, hard_negative_rows, completed_pairs, previous_elapsed = load_resume_state(args)
+        started -= previous_elapsed
+    hard_negative_seed_set = {int(row["seed"]) for row in hard_negative_rows if "seed" in row}
 
     for seed in args.seeds:
         set_seed(seed)
@@ -225,14 +253,16 @@ def main() -> None:
             balance_sqli=not args.no_hard_negative_balance_sqli,
         )
         train_score_summary_after = summarize_scores(train_rows)
-        hard_negative_rows.append(
-            {
-                "seed": seed,
-                "hard_negative_stats": hard_negative_stats,
-                "score_summary_before": train_score_summary_before,
-                "score_summary_after": train_score_summary_after,
-            }
-        )
+        if seed not in hard_negative_seed_set:
+            hard_negative_rows.append(
+                {
+                    "seed": seed,
+                    "hard_negative_stats": hard_negative_stats,
+                    "score_summary_before": train_score_summary_before,
+                    "score_summary_after": train_score_summary_after,
+                }
+            )
+            hard_negative_seed_set.add(seed)
         if hard_negative_stats.get("enabled"):
             print(
                 f"seed={seed} hard_negative extra_benign={hard_negative_stats['extra_benign']} "
@@ -247,6 +277,9 @@ def main() -> None:
         ]
 
         for backbone in args.backbones:
+            if (seed, backbone) in completed_pairs:
+                print(f"seed={seed} backbone={backbone} already completed; skipping")
+                continue
             print(f"seed={seed} training {backbone}")
             model = build_model(backbone, args, device)
             model.fit(train_texts, train_labels)
