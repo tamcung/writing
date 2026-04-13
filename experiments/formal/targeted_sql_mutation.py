@@ -479,10 +479,34 @@ def targeted_evasion_search(
     if not operator_list:
         raise ValueError("operators must not be empty")
 
-    source_prob = float(score_fn([source_text])[0])
+    score_cache: dict[str, float] = {}
+
+    def score_texts(texts: list[str]) -> list[float]:
+        missing = list(dict.fromkeys(text for text in texts if text not in score_cache))
+        if missing:
+            probs = [float(x) for x in score_fn(missing)]
+            score_cache.update(zip(missing, probs))
+        return [score_cache[text] for text in texts]
+
+    source_prob = score_texts([source_text])[0]
     best = CandidateState(text=source_text, prob=source_prob, chain=())
+    if early_stop and source_prob < success_threshold:
+        return TargetedSearchResult(
+            source_text=source_text,
+            adversarial_text=source_text,
+            source_prob=source_prob,
+            adversarial_prob=source_prob,
+            success=True,
+            changed=False,
+            steps=0,
+            queries=1,
+            chain=(),
+            history=(),
+        )
+
     beam = [best]
     history: list[dict] = []
+    visited_texts = {source_text}
     queries = 1
 
     for step in range(1, steps + 1):
@@ -490,7 +514,7 @@ def targeted_evasion_search(
         seen_texts = {state.text for state in beam}
         for state in beam:
             for text, chain in _candidate_texts(state, operator_list, rng, candidates_per_state, max_chars):
-                if text in seen_texts:
+                if text in seen_texts or text in visited_texts:
                     continue
                 seen_texts.add(text)
                 raw_candidates.append((text, chain))
@@ -500,7 +524,8 @@ def targeted_evasion_search(
             break
 
         texts = [item[0] for item in raw_candidates]
-        probs = [float(x) for x in score_fn(texts)]
+        probs = score_texts(texts)
+        visited_texts.update(texts)
         queries += len(texts)
         ranked = sorted(zip(raw_candidates, probs), key=lambda item: item[1])
 
