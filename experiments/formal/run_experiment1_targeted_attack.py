@@ -194,7 +194,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
     parser.add_argument(
         "--operator-set",
-        choices=["conservative", "wafamole_style", "official_wafamole"],
+        choices=["conservative", "wafamole_style", "official_wafamole", "advsqli"],
         default="wafamole_style",
     )
     parser.add_argument("--attack-per-class", type=int, default=1000)

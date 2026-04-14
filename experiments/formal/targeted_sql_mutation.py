@@ -512,6 +512,231 @@ OPERATOR_SETS: dict[str, list[SqlMutationOperator]] = {
 }
 
 
+# ── AdvSQLi operators (Table I, Qu et al. 2024, arXiv:2401.02615) ─────────────
+# Faithful to the paper.  Three semantic fixes applied vs. the paper's examples:
+#   • \xa0 omitted from whitespace pool — MySQL does not treat it as whitespace.
+#   • Comment Rewriting uses only alphanumeric replacement strings to prevent
+#     accidental */ injection inside a comment body.
+#   • Integer Encoding guards against (select n) inside LIMIT clauses, which
+#     MySQL rejects as a syntax error.
+
+# Whitespace characters the paper marks with * (request-method-flexible).
+# The paper shows \t and \n; we add \r \v \f but exclude \xa0.
+_ADVSQLI_WHITESPACES = [" ", "\t", "\n", "\r", "\v", "\f"]
+
+# Fixed comment payloads for injection (paper examples: /*foo*/, /*bar*/).
+_ADVSQLI_COMMENTS = ["/*foo*/", "/*bar*/", "/*baz*/", "/*1*/", "/*x*/"]
+
+# Tautology / contradiction forms from the paper (Table I, Figure 2).
+_ADVSQLI_TRUE_FORMS = [
+    "2 <> 3",
+    "TRUE",
+    "NOT FALSE",
+    "0x2 = 2",
+    "rand() >= 0",
+    "(select ord('r') regexp 114) = 0x1",
+    "'foo' like 'foo'",
+]
+_ADVSQLI_FALSE_FORMS = [
+    "FALSE",
+    "0",
+    "2 = 3",
+    "'foo' like 'bar'",
+]
+
+
+def _advsqli_find_spans(pattern: str, text: str, flags: int = 0) -> list[tuple[int, int, str]]:
+    return [(m.start(), m.end(), m.group(0)) for m in re.finditer(pattern, text, flags)]
+
+
+def _advsqli_replace(text: str, span: tuple[int, int, str], repl: str) -> str:
+    s, e, _ = span
+    return text[:s] + repl + text[e:]
+
+
+def _advsqli_split_trailing_comment(text: str) -> tuple[str, str]:
+    m = re.search(r"(--[^\n\r]*|#[^\n\r]*)", text)
+    return (text[: m.start()], text[m.start():]) if m else (text, "")
+
+
+# 1. Case Swapping — or 1=1 → oR 1=1
+def op_advsqli_case_swapping(text: str, rng: random.Random) -> str:
+    try:
+        import sqlparse  # type: ignore
+        parsed: list = []
+        for stmt in sqlparse.parse(text):
+            parsed.extend(stmt.flatten())
+        kws = set(sqlparse.keywords.KEYWORDS_COMMON.keys())
+        out, changed = [], False
+        for tok in parsed:
+            if tok.value.upper() in kws and rng.random() < 0.75:
+                out.append(_randomize_case(tok.value, rng))
+                changed = True
+            else:
+                out.append(tok.value)
+        if changed:
+            return "".join(out)
+    except Exception:
+        pass
+    # Fallback: use the pre-compiled keyword regex.
+    return _KEYWORD_RE.sub(lambda m: _randomize_case(m.group(0), rng), text)
+
+
+# 2. Whitespace Substitution — or 1=1 → \tor1\n=1  (* flexible)
+def op_advsqli_whitespace_substitution(text: str, rng: random.Random) -> str:
+    matches = list(re.finditer(r"\s+", text))
+    if not matches:
+        return text
+    m = rng.choice(matches)
+    return text[: m.start()] + rng.choice(_ADVSQLI_WHITESPACES) + text[m.end():]
+
+
+# 3. Comment Injection — or 1=1 → /*foo*/or 1=/*bar*/1  (* flexible)
+def op_advsqli_comment_injection(text: str, rng: random.Random) -> str:
+    spans = _advsqli_find_spans(r"\b(union|select|from|where|or|and)\b", text, re.I)
+    if not spans:
+        return text
+    span = rng.choice(spans)
+    comment = rng.choice(_ADVSQLI_COMMENTS)
+    repl = (comment + span[2]) if rng.random() < 0.5 else (span[2] + comment)
+    return _advsqli_replace(text, span, repl)
+
+
+# 4. Comment Rewriting — /*foo*/or 1=1 → /*1.png*/or 1=1
+def op_advsqli_comment_rewriting(text: str, rng: random.Random) -> str:
+    multiline = list(re.finditer(r"/\*.*?\*/", text, re.S))
+    if multiline:
+        target = rng.choice(multiline)
+        # Use only alphanumeric labels — no punctuation that could inject */.
+        label = rng.choice(["1png", "bar", "hello", "img", "x1"])
+        repl = f"/*{label}*/"
+        return text[: target.start()] + repl + text[target.end():]
+    single = list(re.finditer(r"(--[^\n\r]*|#[^\n\r]*)", text))
+    if single:
+        target = rng.choice(single)
+        return text[: target.end()] + rng.choice(["abc", "1", "x"]) + text[target.end():]
+    return text
+
+
+# 5. Integer Encoding — or 1=1 → or 0x1=1
+def op_advsqli_integer_encoding(text: str, rng: random.Random) -> str:
+    mask = _quote_mask(text)
+    candidates = [
+        (m.start(), m.end(), m.group(0))
+        for m in re.finditer(r"(?<![%A-Za-z0-9_x])\d+(?![A-Za-z0-9_])", text)
+        if _outside_quotes(mask, m.start(), m.end())
+    ]
+    if not candidates:
+        return text
+    s, e, val_str = rng.choice(candidates)
+    value = int(val_str)
+    in_limit = bool(re.search(r"\bLIMIT\b[^;]*$", text[:s], re.IGNORECASE))
+    replacements = [hex(value)]
+    if not in_limit:
+        replacements.append(f"(select {value})")
+    return text[:s] + rng.choice(replacements) + text[e:]
+
+
+# 6. Operator Swapping — or 1=1 → or 1 like 1
+def op_advsqli_operator_swapping(text: str, rng: random.Random) -> str:
+    candidates: list[tuple[int, int, str, list[str]]] = []
+    candidates += [(s, e, g, ["||"]) for s, e, g in _advsqli_find_spans(r"\bOR\b", text, re.I)]
+    candidates += [(s, e, g, ["&&"]) for s, e, g in _advsqli_find_spans(r"\bAND\b", text, re.I)]
+    candidates += [(s, e, g, [" like "]) for s, e, g in _advsqli_find_spans(r"(?<![<>!])=(?!=)", text)]
+    if not candidates:
+        return text
+    s, e, _, repls = rng.choice(candidates)
+    return text[:s] + rng.choice(repls) + text[e:]
+
+
+# 7. Logical Invariant — or 1=1 → or 1=1 and 'a'='a'
+def op_advsqli_logical_invariant(text: str, rng: random.Random) -> str:
+    body, tail = _advsqli_split_trailing_comment(text)
+    matches: list[re.Match[str]] = []
+    for pat in [r"\b\d+(?:\.\d+)?\s*(?:=|like)\s*\d+(?:\.\d+)?\b",
+                r"'[^']+'\s*(?:=|like)\s*'[^']+'"]:
+        matches.extend(re.finditer(pat, body, re.I))
+    if not matches:
+        return text
+    target = rng.choice(matches)
+    suffix = rng.choice([" AND 'a' = 'a'", " AND TRUE", " AND 1", " OR FALSE", " OR 0"])
+    return body[: target.end()] + suffix + body[target.end():] + tail
+
+
+# 8. Inline Comment — union select → /*!union*/ /*!50000select*/
+def op_advsqli_inline_comment(text: str, rng: random.Random) -> str:
+    if "/*!" in text:
+        return text
+    spans = []
+    for kw in ["union", "select", "where", "from"]:
+        spans.extend(_advsqli_find_spans(rf"\b{kw}\b", text, re.I))
+    if not spans:
+        return text
+    span = rng.choice(spans)
+    kw = span[2]
+    repl = f"/*!50000{kw}*/" if kw.lower() == "select" else f"/*!{kw}*/"
+    return _advsqli_replace(text, span, repl)
+
+
+# 9. Where Rewriting — where xxx → where xxx and True  /  where (select 0) or xxx
+def op_advsqli_where_rewriting(text: str, rng: random.Random) -> str:
+    body, tail = _advsqli_split_trailing_comment(text)
+    m = re.search(r"\bwhere\b", body, re.I)
+    if not m:
+        return text
+    before = body[: m.start()]
+    kw = body[m.start(): m.end()]
+    after = body[m.end():].lstrip()
+    if not after:
+        return text
+    if rng.random() < 0.5:
+        return before + kw + " " + after + " AND TRUE" + tail
+    return before + kw + " (select 0) OR " + after + tail
+
+
+# 10. DML Substitution — or 1=1 → || 1=1  /  and name='foo' → && name='foo'  (* flexible)
+def op_advsqli_dml_substitution(text: str, rng: random.Random) -> str:
+    del rng
+    if re.search(r"\bOR\b", text, re.I):
+        return re.sub(r"\bOR\b", "||", text, count=1, flags=re.I)
+    if re.search(r"\bAND\b", text, re.I):
+        return re.sub(r"\bAND\b", "&&", text, count=1, flags=re.I)
+    return text
+
+
+# 11. Tautology Substitution — '1'='1' → 2<>3  /  1=1 → rand()>=0
+def op_advsqli_tautology_substitution(text: str, rng: random.Random) -> str:
+    candidates = []
+    for pat in [r"\b\d+(?:\.\d+)?\s*(?:=|like)\s*\d+(?:\.\d+)?\b",
+                r"'[^']+'\s*(?:=|like)\s*'[^']+'"]:
+        candidates.extend(_advsqli_find_spans(pat, text, re.I))
+    if not candidates:
+        return text
+    span = rng.choice(candidates)
+    pool = _ADVSQLI_TRUE_FORMS if re.search(r"(=|like)", span[2], re.I) else _ADVSQLI_FALSE_FORMS
+    repl = rng.choice(pool)
+    if repl == span[2]:
+        repl = rng.choice([x for x in pool if x != span[2]] or pool)
+    return _advsqli_replace(text, span, repl)
+
+
+ADVSQLI_OPERATORS = [
+    SqlMutationOperator("advsqli_case_swapping",             "surface_obfuscation", "AdvSQLi: randomise case of SQL keywords.",                         op_advsqli_case_swapping),
+    SqlMutationOperator("advsqli_whitespace_substitution",   "surface_obfuscation", "AdvSQLi: replace one whitespace run with an alternative character.", op_advsqli_whitespace_substitution),
+    SqlMutationOperator("advsqli_comment_injection",         "surface_obfuscation", "AdvSQLi: inject a comment token before/after a core keyword.",       op_advsqli_comment_injection),
+    SqlMutationOperator("advsqli_comment_rewriting",         "surface_obfuscation", "AdvSQLi: replace existing comment content with a benign string.",    op_advsqli_comment_rewriting),
+    SqlMutationOperator("advsqli_integer_encoding",          "numeric_repr",        "AdvSQLi: encode an integer as hex or scalar SELECT.",                 op_advsqli_integer_encoding),
+    SqlMutationOperator("advsqli_operator_swapping",         "operator_synonym",    "AdvSQLi: swap OR/AND/= with || / && / LIKE.",                         op_advsqli_operator_swapping),
+    SqlMutationOperator("advsqli_logical_invariant",         "boolean_equivalent",  "AdvSQLi: append AND/OR invariant after a tautology.",                 op_advsqli_logical_invariant),
+    SqlMutationOperator("advsqli_inline_comment",            "mysql_comment",       "AdvSQLi: wrap a keyword in MySQL executable comment /*!…*/.",          op_advsqli_inline_comment),
+    SqlMutationOperator("advsqli_where_rewriting",           "boolean_equivalent",  "AdvSQLi: structurally rewrite the WHERE clause.",                     op_advsqli_where_rewriting),
+    SqlMutationOperator("advsqli_dml_substitution",          "operator_synonym",    "AdvSQLi: substitute OR→|| or AND→&&.",                                op_advsqli_dml_substitution),
+    SqlMutationOperator("advsqli_tautology_substitution",    "boolean_equivalent",  "AdvSQLi: replace a tautology with an equivalent form.",               op_advsqli_tautology_substitution),
+]
+
+OPERATOR_SETS["advsqli"] = ADVSQLI_OPERATORS
+
+
 _LIMIT_SUBQUERY_RE = re.compile(r"\bLIMIT\b[^;]*\(SELECT\b", re.IGNORECASE)
 
 
