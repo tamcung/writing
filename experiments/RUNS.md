@@ -14,7 +14,7 @@ bash experiments/setup_exp1.sh   # 解压数据 + clone WAF-A-MoLE
 
 ### Run 1-A：official_wafamole 攻击
 ```bash
-PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp1.py \
+PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
   --backbones word_svc textcnn bilstm codebert \
   --seeds 11 22 33 \
   --operator-set official_wafamole \
@@ -28,12 +28,12 @@ PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp1.py \
   --max-tokens 256 \
   --device cuda \
   --resume \
-  --output experiments/formal/results_exp1_official.json
+  --output experiments/results_exp1_official.json
 ```
 
 ### Run 1-B：advsqli 攻击
 ```bash
-PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp1.py \
+PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
   --backbones word_svc textcnn bilstm codebert \
   --seeds 11 22 33 \
   --operator-set advsqli \
@@ -47,7 +47,7 @@ PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp1.py \
   --max-tokens 256 \
   --device cuda \
   --resume \
-  --output experiments/formal/results_exp1_advsqli.json
+  --output experiments/results_exp1_advsqli.json
 ```
 
 ---
@@ -61,7 +61,7 @@ bash experiments/setup_exp2.sh
 
 ### Run 2-A：official_wafamole 攻击
 ```bash
-PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp2.py \
+PYTHONUNBUFFERED=1 python -u experiments/run_exp2.py \
   --backbones textcnn bilstm codebert \
   --methods clean_ce pair_ce pair_canonical \
   --seeds 11 22 33 \
@@ -79,12 +79,12 @@ PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp2.py \
   --codebert-lr 1e-4 \
   --device cuda \
   --resume \
-  --output experiments/formal/results_exp2_official.json
+  --output experiments/results_exp2_official.json
 ```
 
 ### Run 2-B：advsqli 攻击（跨算子泛化）
 ```bash
-PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp2.py \
+PYTHONUNBUFFERED=1 python -u experiments/run_exp2.py \
   --backbones textcnn bilstm codebert \
   --methods clean_ce pair_ce pair_canonical \
   --seeds 11 22 33 \
@@ -102,7 +102,7 @@ PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp2.py \
   --codebert-lr 1e-4 \
   --device cuda \
   --resume \
-  --output experiments/formal/results_exp2_advsqli.json
+  --output experiments/results_exp2_advsqli.json
 ```
 
 ---
@@ -110,7 +110,7 @@ PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp2.py \
 ## 消融实验：consistency_weight 扫描
 
 ```bash
-PYTHONUNBUFFERED=1 python -u experiments/formal/sweep_ablation.py \
+PYTHONUNBUFFERED=1 python -u experiments/sweep_ablation.py \
   --backbone bilstm \
   --seeds 11 22 33 \
   --attack-per-class 100 \
@@ -119,7 +119,7 @@ PYTHONUNBUFFERED=1 python -u experiments/formal/sweep_ablation.py \
   --beam-size 5 \
   --attack-search-group-size 128 \
   --device cuda \
-  --output experiments/formal/results_ablation_consistency_weight.json
+  --output experiments/results_ablation_consistency_weight.json
 ```
 
 ---

@@ -4,12 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-if [[ ! -f colab_experiment2_inputs.tar.gz ]]; then
-  echo "Missing colab_experiment2_inputs.tar.gz in $ROOT_DIR" >&2
+if [[ ! -f experiment2_inputs.tar.gz ]]; then
+  echo "Missing experiment2_inputs.tar.gz in $ROOT_DIR" >&2
   exit 1
 fi
 
-tar -xzf colab_experiment2_inputs.tar.gz
+tar -xzf experiment2_inputs.tar.gz
 
 if [[ ! -f external/WAF-A-MoLE/wafamole/payloadfuzzer/sqlfuzzer.py ]]; then
   mkdir -p external
