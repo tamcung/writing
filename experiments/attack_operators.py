@@ -894,7 +894,7 @@ def _candidate_texts(
         try:
             importances = grad_fn(state.text)
             if importances is not None and len(importances) > 0:
-                from experiments.formal.tokenization import tokenize_sql  # local import to avoid circular
+                from experiments.tokenization import tokenize_sql  # local import to avoid circular
                 tokens = tokenize_sql(state.text)
                 op_weights = _operator_weights_from_importances(operators, tokens, importances)
         except Exception:

@@ -1,12 +1,11 @@
-# Remote Experiment Runs
+# Experiment Runs
 
 ## 环境准备（每台机器只需执行一次）
 
 ```bash
-cd /content  # 或远端工作目录
 git clone https://github.com/tamcung/writing.git
 cd writing
-bash experiments/formal/setup_colab_exp1.sh   # 解压数据 + clone WAF-A-MoLE
+bash experiments/setup_exp1.sh   # 解压数据 + clone WAF-A-MoLE
 ```
 
 ---
@@ -57,7 +56,7 @@ PYTHONUNBUFFERED=1 python -u experiments/formal/run_exp1.py \
 
 先准备好数据（如果 pairs 目录不存在）：
 ```bash
-bash experiments/formal/setup_colab_exp2.sh
+bash experiments/setup_exp2.sh
 ```
 
 ### Run 2-A：official_wafamole 攻击

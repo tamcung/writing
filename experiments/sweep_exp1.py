@@ -28,19 +28,19 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.formal.model_utils import (  # noqa: E402
+from experiments.model_utils import (  # noqa: E402
     build_model,
     load_seed_split,
     resolve_device,
     rows_to_xy,
     set_seed,
 )
-from experiments.formal.run_exp1 import (  # noqa: E402
+from experiments.run_exp1 import (  # noqa: E402
     attack_sqli_rows,
     evaluate_view,
     pick_attack_rows,
 )
-from experiments.formal.metrics import summarize  # noqa: E402
+from experiments.metrics import summarize  # noqa: E402
 
 
 # ── Attack budget grid ───────────────────────────────────────────────────────
@@ -284,7 +284,7 @@ def print_phase2_summary(rows: list[dict]) -> None:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--phase", type=int, choices=[1, 2], required=True)
-    p.add_argument("--splits-dir", default="data/derived/formal_modsec_decoded/experiment1/splits")
+    p.add_argument("--splits-dir", default="data/splits")
     p.add_argument("--seeds",  nargs="+", type=int, default=[11, 22, 33])
     p.add_argument("--backbones", nargs="+", default=["word_svc", "textcnn", "bilstm"])
     p.add_argument("--attack-per-class", type=int, default=100)

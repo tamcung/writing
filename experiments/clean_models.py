@@ -18,7 +18,7 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModel, AutoTokenizer
 
-from experiments.formal.tokenization import build_vocab, encode_tokens, tokenize_sql
+from experiments.tokenization import build_vocab, encode_tokens, tokenize_sql
 
 
 class WordSVCModel:

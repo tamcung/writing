@@ -73,9 +73,9 @@ def split_stats(rows: list[dict]) -> dict[str, int]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--processed-dir", default="data/processed/formal_v3")
+    parser.add_argument("--processed-dir", default="data/processed/modsec")
     parser.add_argument("--dataset", default="sqliv3_clean")
-    parser.add_argument("--output-dir", default="data/derived/formal_v3/experiment1/splits")
+    parser.add_argument("--output-dir", default="data/splits")
     parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33, 44, 55, 66, 77, 88, 99, 111])
     parser.add_argument("--train-per-class", type=int, default=1000)
     parser.add_argument("--valid-per-class", type=int, default=200)

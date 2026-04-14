@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.formal.clean_models import (  # noqa: E402
+from experiments.clean_models import (  # noqa: E402
     BiLSTMModel,
     CodeBERTConfig,
     CodeBERTModel,
@@ -25,7 +25,7 @@ from experiments.formal.clean_models import (  # noqa: E402
     TextCNNModel,
     WordSVCModel,
 )
-from experiments.formal.metrics import metrics_from_probs, summarize  # noqa: E402
+from experiments.metrics import metrics_from_probs, summarize  # noqa: E402
 
 
 def set_seed(seed: int) -> None:
@@ -125,7 +125,7 @@ def summarize_rows(rows: list[dict]) -> dict[str, int]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--splits-dir", default="data/derived/formal_modsec_decoded/experiment1/splits")
+    parser.add_argument("--splits-dir", default="data/splits")
     parser.add_argument("--backbones", nargs="+", default=["word_svc", "textcnn", "bilstm"])
     parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33])
     parser.add_argument("--output", default="experiments/formal/results_experiment1_clean_ce.json")

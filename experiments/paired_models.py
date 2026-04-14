@@ -13,7 +13,7 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModel, AutoTokenizer
 
-from experiments.formal.tokenization import build_vocab, encode_tokens
+from experiments.tokenization import build_vocab, encode_tokens
 
 
 def weighted_mean(values: torch.Tensor, weights: torch.Tensor | None = None) -> torch.Tensor:

@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.formal.metrics import metrics_from_probs, summarize  # noqa: E402
-from experiments.formal.model_utils import (  # noqa: E402
+from experiments.metrics import metrics_from_probs, summarize  # noqa: E402
+from experiments.model_utils import (  # noqa: E402
     build_model,
     load_seed_split,
     resolve_device,
@@ -26,7 +26,7 @@ from experiments.formal.model_utils import (  # noqa: E402
     set_seed,
     summarize_rows,
 )
-from experiments.formal.attack_operators import (  # noqa: E402
+from experiments.attack_operators import (  # noqa: E402
     get_operator_set,
     targeted_evasion_search_many,
 )
@@ -162,7 +162,7 @@ def load_resume_state(args) -> tuple[list[dict], list[dict], set[tuple[int, str]
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--splits-dir", default="data/derived/formal_modsec_decoded/experiment1/splits")
+    parser.add_argument("--splits-dir", default="data/splits")
     parser.add_argument("--backbones", nargs="+", default=["word_svc", "textcnn", "bilstm", "codebert"])
     parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33])
     parser.add_argument("--output", default="experiments/formal/results_experiment1_targeted_attack.json")

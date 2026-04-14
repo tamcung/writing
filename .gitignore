@@ -17,18 +17,17 @@ env/
 data/raw/
 data/processed/
 data/derived/
+data/splits/
+data/pairs/
 external/
 
 # Experiment outputs can be large or machine-specific.
 experiments/*.json
 experiments/**/*.json
-experiments/formal/*.json
-experiments/formal/*.partial.json
+experiments/*.partial.json
 *.tar
 *.tar.gz
 *.zip
-!colab_experiment1_inputs.tar.gz
-!colab_experiment2_inputs.tar.gz
 
 # Model checkpoints and binary artifacts
 *.pt

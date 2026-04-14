@@ -15,20 +15,20 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.formal.metrics import metrics_from_probs, summarize  # noqa: E402
-from experiments.formal.pair_data import (  # noqa: E402
+from experiments.metrics import metrics_from_probs, summarize  # noqa: E402
+from experiments.pair_data import (  # noqa: E402
     build_pair_rows,
     load_pair_rows,
     pair_rows_to_training_arrays,
     summarize_pair_rows,
 )
-from experiments.formal.paired_models import (  # noqa: E402
+from experiments.paired_models import (  # noqa: E402
     PairCodeBERTConfig,
     PairCodeBERTModel,
     PairSeqConfig,
     PairSequenceModel,
 )
-from experiments.formal.model_utils import (  # noqa: E402
+from experiments.model_utils import (  # noqa: E402
     build_model,
     load_seed_split,
     resolve_device,
@@ -36,7 +36,7 @@ from experiments.formal.model_utils import (  # noqa: E402
     set_seed,
     summarize_rows,
 )
-from experiments.formal.run_exp1 import (  # noqa: E402
+from experiments.run_exp1 import (  # noqa: E402
     attack_sqli_rows,
     pick_attack_rows,
     summarize_attack_rows,
@@ -194,11 +194,11 @@ def load_resume_state(args: argparse.Namespace) -> tuple[list[dict], list[dict],
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--splits-dir", default="data/derived/formal_modsec_decoded/experiment1/splits")
+    parser.add_argument("--splits-dir", default="data/splits")
     parser.add_argument("--backbones", nargs="+", default=["textcnn", "bilstm", "codebert"])
     parser.add_argument("--methods", nargs="+", default=["clean_ce", "pair_ce", "pair_canonical"])
     parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33])
-    parser.add_argument("--pairs-dir", default="data/derived/formal_modsec_decoded/experiment2/pairs")
+    parser.add_argument("--pairs-dir", default="data/pairs")
     parser.add_argument("--require-pairs", action="store_true")
     parser.add_argument("--output", default="experiments/formal/results_experiment2_pair_training_targeted.json")
     parser.add_argument("--resume", action="store_true")
