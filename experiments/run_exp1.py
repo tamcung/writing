@@ -111,6 +111,7 @@ def summarize_attack_rows(rows: list[dict]) -> dict:
         "count": len(rows),
         "success_rate": sum(1 for r in rows if r["attack_success"]) / len(rows),
         "mean_prob_drop": float(np.mean([r["prob_drop"] for r in rows])),
+        "mean_adversarial_sqli_prob": float(np.mean([r["adversarial_sqli_prob"] for r in rows])),
         "mean_queries": float(np.mean([r["attack_queries"] for r in rows])),
     }
 
