@@ -785,7 +785,7 @@ def _is_official_output_valid(text: str) -> bool:
 
 
 def _official_wafamole_operator_set() -> list[SqlMutationOperator]:
-    wafamole_root = Path(__file__).resolve().parents[2] / "external" / "WAF-A-MoLE"
+    wafamole_root = Path(__file__).resolve().parents[1] / "external" / "WAF-A-MoLE"
     if str(wafamole_root) not in sys.path:
         sys.path.insert(0, str(wafamole_root))
 
