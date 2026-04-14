@@ -14,15 +14,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiments.formal.pair_data import build_pair_rows  # noqa: E402
-from experiments.formal.run_experiment1_clean_ce import load_seed_split  # noqa: E402
+from experiments.formal.model_utils import load_seed_split  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--splits-dir", default="data/derived/formal_modsec_decoded/experiment1/splits")
     parser.add_argument("--output-dir", default="data/derived/formal_modsec_decoded/experiment2/pairs")
-    parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33, 44, 55, 66, 77, 88, 99, 111])
-    parser.add_argument("--operator-set", choices=["conservative", "wafamole_style", "official_wafamole"], default="official_wafamole")
+    parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33])
+    parser.add_argument("--operator-set", choices=["official_wafamole"], default="official_wafamole")
     parser.add_argument("--sqli-pairs-per-sample", type=int, default=1)
     parser.add_argument("--benign-pairs-per-sample", type=int, default=1)
     parser.add_argument("--mutation-rounds", type=int, default=7)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unified clean_ce runner on processed formal datasets."""
+"""Clean baseline training helpers and standalone clean-eval runner for Experiment 1."""
 
 from __future__ import annotations
 
@@ -25,12 +25,6 @@ from experiments.formal.clean_models import (  # noqa: E402
     TextCNNModel,
     WordSVCModel,
 )
-from experiments.formal.data import (  # noqa: E402
-    balanced_sample,
-    filter_dataset,
-    load_dataset_by_name,
-    make_stratified_split,
-)
 from experiments.formal.metrics import metrics_from_probs, summarize  # noqa: E402
 
 
@@ -43,7 +37,14 @@ def set_seed(seed: int) -> None:
 
 def resolve_device(device: str) -> str:
     if device == "auto":
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+    if device == "cuda" and not torch.cuda.is_available():
+        device = "cpu"
     if device == "mps":
         try:
             _ = torch.zeros(1, device="mps")
@@ -102,18 +103,33 @@ def build_model(backbone: str, args: argparse.Namespace, device: str):
     raise ValueError(f"Unsupported backbone: {backbone}")
 
 
+def load_rows(path: Path) -> list[dict]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def rows_to_xy(rows: list[dict]) -> tuple[list[str], list[int]]:
+    return [str(row["text"]) for row in rows], [int(row["label"]) for row in rows]
+
+
+def load_seed_split(splits_dir: Path, seed: int, split_name: str) -> list[dict]:
+    return load_rows(splits_dir / f"seed_{seed}" / f"{split_name}.json")
+
+
+def summarize_rows(rows: list[dict]) -> dict[str, int]:
+    return {
+        "total": len(rows),
+        "benign": sum(1 for row in rows if int(row["label"]) == 0),
+        "sqli": sum(1 for row in rows if int(row["label"]) == 1),
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--processed-dir", default="data/processed/formal_v3")
-    parser.add_argument("--train-dataset", default="sqliv3_clean")
-    parser.add_argument("--external-datasets", nargs="+", default=["modsec_learn_cleaned", "web_attacks_long_test"])
-    parser.add_argument("--backbones", nargs="+", default=["word_svc", "textcnn", "bilstm", "codebert"])
+    parser.add_argument("--splits-dir", default="data/derived/formal_modsec_decoded/experiment1/splits")
+    parser.add_argument("--backbones", nargs="+", default=["word_svc", "textcnn", "bilstm"])
     parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33])
-    parser.add_argument("--train-per-class", type=int, default=500)
-    parser.add_argument("--test-per-class", type=int, default=1000)
-    parser.add_argument("--external-per-class", type=int, default=0, help="0 means all-balanced")
-    parser.add_argument("--output", default="experiments/formal/results_clean_baselines.json")
-    parser.add_argument("--device", choices=["auto", "cpu", "mps"], default="auto")
+    parser.add_argument("--output", default="experiments/formal/results_experiment1_clean_ce.json")
+    parser.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
 
     parser.add_argument("--word-ngram-max", type=int, default=2)
     parser.add_argument("--word-min-df", type=int, default=1)
@@ -121,7 +137,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--max-tokens", type=int, default=128)
+    parser.add_argument("--max-tokens", type=int, default=256)
     parser.add_argument("--max-vocab", type=int, default=20000)
     parser.add_argument("--min-freq", type=int, default=1)
     parser.add_argument("--lowercase", action="store_true")
@@ -134,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name", default="microsoft/codebert-base")
     parser.add_argument("--codebert-epochs", type=int, default=2)
     parser.add_argument("--codebert-batch-size", type=int, default=8)
-    parser.add_argument("--max-len", type=int, default=320)
+    parser.add_argument("--max-len", type=int, default=512)
     parser.add_argument("--codebert-lr", type=float, default=1e-3)
     parser.add_argument("--encoder-lr", type=float, default=2e-5)
     parser.add_argument("--codebert-dropout", type=float, default=0.1)
@@ -147,76 +163,53 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    processed_dir = Path(args.processed_dir)
+    splits_dir = Path(args.splits_dir)
     device = resolve_device(args.device)
     started = time.time()
-
-    train_bundle = load_dataset_by_name(processed_dir, args.train_dataset)
-    full_train_source_texts = set(train_bundle.texts)
-    external_bundles = {name: load_dataset_by_name(processed_dir, name) for name in args.external_datasets}
-
     rows: list[dict] = []
 
     for seed in args.seeds:
         set_seed(seed)
-        train_texts, train_labels, holdout_texts, holdout_labels = make_stratified_split(
-            train_bundle,
-            seed=seed,
-            train_per_class=args.train_per_class,
-            test_per_class=args.test_per_class,
-        )
-        forbidden_texts = full_train_source_texts | set(train_texts)
-
-        eval_views = {
-            f"{args.train_dataset}_holdout": (holdout_texts, holdout_labels),
-        }
-        for name, bundle in external_bundles.items():
-            filtered = filter_dataset(bundle, forbidden_texts)
-            balanced = balanced_sample(filtered, seed + 31337, args.external_per_class)
-            eval_views[name] = (balanced.texts, balanced.labels)
+        train_rows = load_seed_split(splits_dir, seed, "train")
+        valid_rows = load_seed_split(splits_dir, seed, "valid")
+        clean_test_rows = load_seed_split(splits_dir, seed, "clean_test")
+        train_texts, train_labels = rows_to_xy(train_rows)
 
         for backbone in args.backbones:
-            print(f"seed={seed} training clean {backbone}")
+            print(f"seed={seed} training {backbone}")
             model = build_model(backbone, args, device)
             model.fit(train_texts, train_labels)
-            for view, (texts, labels) in eval_views.items():
+
+            for split_name, split_rows in [("valid", valid_rows), ("clean_test", clean_test_rows)]:
+                texts, labels = rows_to_xy(split_rows)
                 probs = model.predict_proba(texts)
-                metric = metrics_from_probs(probs, labels)
-                rows.append(
-                    {
-                        "seed": seed,
-                        "backbone": backbone,
-                        "method": "clean_ce",
-                        "view": view,
-                        "metrics": metric,
-                    }
-                )
-                print(
-                    f"  {view} f1={metric['f1']:.4f} recall={metric['recall']:.4f} p10={metric['p10_sqli_prob']:.4f}"
-                )
+                metrics = metrics_from_probs(probs, labels)
+                rows.append({
+                    "seed": seed,
+                    "backbone": backbone,
+                    "split": split_name,
+                    "metrics": metrics,
+                })
+                print(f"  {split_name} f1={metrics['f1']:.4f} recall={metrics['recall']:.4f}")
 
     summary: dict[str, dict] = {}
-    views = sorted({row["view"] for row in rows})
-    for view in views:
-        summary[view] = {}
+    for split_name in ["valid", "clean_test"]:
+        summary[split_name] = {}
         for backbone in args.backbones:
-            vals = [row["metrics"] for row in rows if row["view"] == view and row["backbone"] == backbone]
-            summary[view][backbone] = {
+            vals = [r["metrics"] for r in rows if r["split"] == split_name and r["backbone"] == backbone]
+            summary[split_name][backbone] = {
                 "f1": summarize([v["f1"] for v in vals]),
                 "recall": summarize([v["recall"] for v in vals]),
-                "precision": summarize([v["precision"] for v in vals]),
-                "p10_sqli_prob": summarize([v["p10_sqli_prob"] for v in vals]),
             }
 
-    output = {
-        "config": vars(args),
-        "elapsed_seconds": time.time() - started,
-        "rows": rows,
-        "summary": summary,
-    }
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path.write_text(json.dumps({
+        "config": vars(args),
+        "elapsed_seconds": round(time.time() - started, 1),
+        "rows": rows,
+        "summary": summary,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Wrote results to {out_path}")
 
 

@@ -28,7 +28,7 @@ from experiments.formal.paired_models import (  # noqa: E402
     PairSeqConfig,
     PairSequenceModel,
 )
-from experiments.formal.run_experiment1_clean_ce import (  # noqa: E402
+from experiments.formal.model_utils import (  # noqa: E402
     build_model,
     load_seed_split,
     resolve_device,
@@ -36,7 +36,7 @@ from experiments.formal.run_experiment1_clean_ce import (  # noqa: E402
     set_seed,
     summarize_rows,
 )
-from experiments.formal.run_experiment1_targeted_attack import (  # noqa: E402
+from experiments.formal.run_exp1 import (  # noqa: E402
     attack_sqli_rows,
     pick_attack_rows,
     summarize_attack_rows,
@@ -195,17 +195,17 @@ def load_resume_state(args: argparse.Namespace) -> tuple[list[dict], list[dict],
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--splits-dir", default="data/derived/formal_modsec_decoded/experiment1/splits")
-    parser.add_argument("--backbones", nargs="+", default=["textcnn", "bilstm"])
-    parser.add_argument("--methods", nargs="+", default=["clean_ce", "pair_ce", "pair_proj_ce", "pair_canonical"])
-    parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33, 44, 55, 66, 77, 88, 99, 111])
+    parser.add_argument("--backbones", nargs="+", default=["textcnn", "bilstm", "codebert"])
+    parser.add_argument("--methods", nargs="+", default=["clean_ce", "pair_ce", "pair_canonical"])
+    parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33])
     parser.add_argument("--pairs-dir", default="data/derived/formal_modsec_decoded/experiment2/pairs")
     parser.add_argument("--require-pairs", action="store_true")
     parser.add_argument("--output", default="experiments/formal/results_experiment2_pair_training_targeted.json")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
 
-    parser.add_argument("--train-operator-set", choices=["conservative", "wafamole_style", "official_wafamole"], default="official_wafamole")
-    parser.add_argument("--attack-operator-set", choices=["conservative", "wafamole_style", "official_wafamole"], default="official_wafamole")
+    parser.add_argument("--train-operator-set", choices=["official_wafamole"], default="official_wafamole")
+    parser.add_argument("--attack-operator-set", choices=["official_wafamole", "advsqli"], default="official_wafamole")
     parser.add_argument("--sqli-pairs-per-sample", type=int, default=1)
     parser.add_argument("--benign-pairs-per-sample", type=int, default=1)
     parser.add_argument("--mutation-rounds", type=int, default=7)
@@ -218,7 +218,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--beam-size", type=int, default=5)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--max-chars", type=int, default=896)
-    parser.add_argument("--attack-search-group-size", type=int, default=32)
+    parser.add_argument("--attack-search-group-size", type=int, default=128)
     parser.add_argument("--no-early-stop", action="store_true")
 
     parser.add_argument("--word-ngram-max", type=int, default=2)

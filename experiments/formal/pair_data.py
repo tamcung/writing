@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from experiments.formal.semantic_mutation import benign_nuisance_transform, benign_nuisance_transform_values
-from experiments.formal.targeted_sql_mutation import get_operator_set, random_operator_chain
+from experiments.formal.attack_operators import get_operator_set, random_operator_chain
 
 
 def build_pair_rows(
