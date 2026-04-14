@@ -218,6 +218,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--beam-size", type=int, default=5)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--max-chars", type=int, default=896)
+    parser.add_argument("--attack-search-group-size", type=int, default=32)
     parser.add_argument("--no-early-stop", action="store_true")
 
     parser.add_argument("--word-ngram-max", type=int, default=2)
@@ -343,6 +344,7 @@ def main() -> None:
                     threshold=args.threshold,
                     max_chars=args.max_chars,
                     early_stop=not args.no_early_stop,
+                    group_size=args.attack_search_group_size,
                 )
                 adv_view = [
                     {**row, "mutated": False, "source_text": row["text"], "mutation_family": None}

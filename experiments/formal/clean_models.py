@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 
 import numpy as np
 import torch
@@ -40,6 +42,9 @@ class WordSVCModel:
     def predict_proba(self, texts: list[str]) -> np.ndarray:
         x = self.vectorizer.transform(texts)
         return self.classifier.predict_proba(x)[:, 1]
+
+    def token_importances(self, text: str) -> "np.ndarray | None":  # noqa: F821
+        return None
 
 
 class SequenceDataset(Dataset):
@@ -82,6 +87,15 @@ class TextCNNNet(nn.Module):
         h = self.dropout(torch.cat(feats, dim=1))
         return self.fc(h).squeeze(1)
 
+    def token_importances(self, x: torch.Tensor) -> torch.Tensor:
+        """Gradient-norm importance per token position. x: [1, seq_len]. Model must be in eval mode."""
+        emb = self.embedding(x).detach().requires_grad_(True)  # [1, seq_len, emb_dim]
+        emb_T = emb.transpose(1, 2)
+        feats = [torch.max(F.gelu(conv(emb_T)), dim=2).values for conv in self.convs]
+        logit = self.fc(torch.cat(feats, dim=1)).squeeze()
+        logit.backward()
+        return emb.grad[0].norm(dim=-1)  # [seq_len]
+
 
 class BiLSTMNet(nn.Module):
     def __init__(self, vocab_size: int, emb_dim: int, hidden_dim: int, dropout: float) -> None:
@@ -99,6 +113,16 @@ class BiLSTMNet(nn.Module):
         h = torch.cat([h_n[-2], h_n[-1]], dim=1)
         h = self.dropout(h)
         return self.fc(h).squeeze(1)
+
+    def token_importances(self, x: torch.Tensor) -> torch.Tensor:
+        """Gradient-norm importance per token position. x: [1, seq_len]. Model must be in eval mode."""
+        lengths = x.ne(0).sum(dim=1).clamp_min(1)
+        emb = self.embedding(x).detach().requires_grad_(True)  # [1, seq_len, emb_dim]
+        packed = pack_padded_sequence(emb, lengths.cpu(), batch_first=True, enforce_sorted=False)
+        _, (h_n, _) = self.lstm(packed)
+        logit = self.fc(torch.cat([h_n[-2], h_n[-1]], dim=1)).squeeze()
+        logit.backward()
+        return emb.grad[0].norm(dim=-1)  # [seq_len]
 
 
 @dataclass
@@ -142,19 +166,31 @@ def _train_sequence_model(
     return model
 
 
+_TOKENIZE_WORKERS = 4
+
+
 def _predict_sequence_model(
     model: nn.Module,
     vocab: dict[str, int],
     texts: list[str],
     cfg: SeqConfig,
 ) -> np.ndarray:
-    ds = SequenceDataset(texts, [0] * len(texts), vocab, cfg.max_tokens, cfg.lowercase)
-    loader = DataLoader(ds, batch_size=cfg.batch_size, shuffle=False)
+    encode_fn = partial(encode_tokens, vocab=vocab, max_tokens=cfg.max_tokens, lowercase=cfg.lowercase)
+    if len(texts) >= _TOKENIZE_WORKERS * 2:
+        with ThreadPoolExecutor(max_workers=_TOKENIZE_WORKERS) as pool:
+            encoded = list(pool.map(encode_fn, texts))
+    else:
+        encoded = [encode_fn(text) for text in texts]
+
     model.eval()
     probs: list[float] = []
     with torch.inference_mode():
-        for x, _ in loader:
-            x = x.to(cfg.device)
+        for start in range(0, len(encoded), cfg.batch_size):
+            x = torch.tensor(
+                encoded[start : start + cfg.batch_size],
+                dtype=torch.long,
+                device=cfg.device,
+            )
             logits = model(x)
             probs.extend(torch.sigmoid(logits).cpu().numpy().tolist())
     return np.asarray(probs, dtype=float)
@@ -186,6 +222,16 @@ class TextCNNModel:
         assert self.model is not None and self.vocab is not None
         return _predict_sequence_model(self.model, self.vocab, texts, self.cfg)
 
+    def token_importances(self, text: str) -> np.ndarray | None:
+        assert self.model is not None and self.vocab is not None
+        ids = encode_tokens(text, self.vocab, self.cfg.max_tokens, lowercase=self.cfg.lowercase)
+        x = torch.tensor([ids], dtype=torch.long, device=self.cfg.device)
+        self.model.eval()
+        with torch.enable_grad():
+            imps = self.model.token_importances(x)
+        n_tokens = min(len(tokenize_sql(text, lowercase=self.cfg.lowercase)), self.cfg.max_tokens)
+        return imps[:n_tokens].detach().cpu().numpy()
+
 
 class BiLSTMModel:
     def __init__(self, cfg: SeqConfig) -> None:
@@ -212,6 +258,16 @@ class BiLSTMModel:
     def predict_proba(self, texts: list[str]) -> np.ndarray:
         assert self.model is not None and self.vocab is not None
         return _predict_sequence_model(self.model, self.vocab, texts, self.cfg)
+
+    def token_importances(self, text: str) -> np.ndarray | None:
+        assert self.model is not None and self.vocab is not None
+        ids = encode_tokens(text, self.vocab, self.cfg.max_tokens, lowercase=self.cfg.lowercase)
+        x = torch.tensor([ids], dtype=torch.long, device=self.cfg.device)
+        self.model.eval()
+        with torch.enable_grad():
+            imps = self.model.token_importances(x)
+        n_tokens = min(len(tokenize_sql(text, lowercase=self.cfg.lowercase)), self.cfg.max_tokens)
+        return imps[:n_tokens].detach().cpu().numpy()
 
 
 class CodeBERTClassifier(nn.Module):

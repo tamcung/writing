@@ -16,10 +16,11 @@ import numpy as np
 
 MutationFn = Callable[[str, random.Random], str]
 ScoreFn = Callable[[list[str]], np.ndarray]
+# Returns per-token importance scores (aligned with tokenize_sql output), or None for non-differentiable models.
+GradFn = Callable[[str], "np.ndarray | None"]
 
 
-SQL_KEYWORDS = [
-    "select",
+SQL_KEYWORDS = [    "select",
     "union",
     "all",
     "distinct",
@@ -53,6 +54,81 @@ SQL_KEYWORDS = [
     "limit",
 ]
 
+_KEYWORD_RE = re.compile(
+    r"\b(" + "|".join(re.escape(k) for k in SQL_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
+
+_SQL_KEYWORDS_SET = frozenset(k.lower() for k in SQL_KEYWORDS)
+
+# Map operator family → which token class it primarily targets.
+# "whitespace" operators target the gaps between tokens, so we use all-token mean importance.
+_FAMILY_TO_TOKEN_CLASS: dict[str, str] = {
+    "surface_obfuscation": "whitespace",
+    "numeric_repr": "number",
+    "string_construction": "string",
+    "boolean_equivalent": "boolean",
+    "operator_synonym": "operator",
+    "comment_marker": "comment",
+    "mysql_comment": "keyword",
+    "official_wafamole": "other",
+}
+
+# Operator-name overrides that are more specific than the family-level mapping.
+_OP_NAME_TO_TOKEN_CLASS: dict[str, str] = {
+    "random_case_keywords": "keyword",
+    "reset_inline_comments": "comment",
+    "comment_rewriting": "comment",
+    "mysql_comment_marker_synonym": "comment",
+}
+
+
+def _classify_token(tok: str) -> str:
+    tl = tok.lower()
+    if tl in _SQL_KEYWORDS_SET:
+        return "keyword"
+    if re.fullmatch(r"\d+(?:\.\d+)?|0x[0-9a-fA-F]+", tok, re.IGNORECASE):
+        return "number"
+    if tok.startswith("/*") or tok.startswith("--") or tok.startswith("#"):
+        return "comment"
+    if re.fullmatch(r"['\"][A-Za-z0-9_@$#]*['\"]|['\"]", tok):
+        return "string"
+    if tok in ("||", "&&", "!=", "<>", "=", "<", ">", "<=", ">=", "==", "LIKE", "NOT"):
+        return "operator"
+    return "other"
+
+
+def _operator_weights_from_importances(
+    operators: list["SqlMutationOperator"],
+    tokens: list[str],
+    importances: np.ndarray,
+    floor: float = 0.05,
+) -> list[float]:
+    """Compute sampling weight per operator based on gradient importance of the token types it targets."""
+    # Aggregate importance by token class
+    class_imp: dict[str, float] = {}
+    for tok, imp in zip(tokens, importances[: len(tokens)]):
+        cls = _classify_token(tok)
+        class_imp[cls] = class_imp.get(cls, 0.0) + float(imp)
+
+    if not class_imp:
+        return [1.0] * len(operators)
+
+    total = sum(class_imp.values())
+    mean_imp = total / len(class_imp)
+
+    weights: list[float] = []
+    for op in operators:
+        target_cls = _OP_NAME_TO_TOKEN_CLASS.get(op.name) or _FAMILY_TO_TOKEN_CLASS.get(op.family, "other")
+        if target_cls == "whitespace":
+            # Whitespace operators affect the overall sequence structure;
+            # proxy = mean importance across all tokens.
+            w = mean_imp
+        else:
+            w = class_imp.get(target_cls, mean_imp)
+        weights.append(max(w, floor * mean_imp))
+    return weights
+
 
 @dataclass(frozen=True)
 class SqlMutationOperator:
@@ -83,12 +159,49 @@ class TargetedSearchResult:
     history: tuple[dict, ...]
 
 
+@dataclass
+class _SearchSession:
+    source_text: str
+    source_prob: float
+    rng: random.Random
+    best: CandidateState
+    beam: list[CandidateState]
+    visited_texts: set[str]
+    queries: int
+    history: list[dict]
+    done: bool = False
+
+
 @dataclass(frozen=True)
 class RandomMutationResult:
     source_text: str
     mutated_text: str
     changed: bool
     chain: tuple[str, ...]
+
+
+_PATCHED_RANDOM_FUNCS = (
+    "choice",
+    "choices",
+    "randint",
+    "randrange",
+    "random",
+    "sample",
+    "shuffle",
+    "uniform",
+    "getrandbits",
+)
+
+
+def _call_with_rng(fn: Callable[[str], str], text: str, rng: random.Random) -> str:
+    saved = {name: getattr(random, name) for name in _PATCHED_RANDOM_FUNCS}
+    try:
+        for name in _PATCHED_RANDOM_FUNCS:
+            setattr(random, name, getattr(rng, name))
+        return fn(text)
+    finally:
+        for name, original in saved.items():
+            setattr(random, name, original)
 
 
 def _quote_mask(text: str) -> list[bool]:
@@ -155,14 +268,12 @@ def _randomize_case(token: str, rng: random.Random) -> str:
 
 
 def op_random_case_keywords(text: str, rng: random.Random) -> str:
-    keyword_re = r"\b(" + "|".join(re.escape(k) for k in SQL_KEYWORDS) + r")\b"
-
     def repl(match: re.Match[str]) -> str:
         token = match.group(0)
         mutated = _randomize_case(token, rng)
         return mutated if mutated != token else token.swapcase()
 
-    return re.sub(keyword_re, repl, text, flags=re.IGNORECASE)
+    return _KEYWORD_RE.sub(repl, text)
 
 
 def op_spaces_to_comments(text: str, rng: random.Random) -> str:
@@ -354,23 +465,20 @@ def op_mysql_comment_marker_synonym(text: str, rng: random.Random) -> str:
 
 
 def op_mysql_executable_comment_keyword(text: str, rng: random.Random) -> str:
-    keyword_re = r"\b(" + "|".join(re.escape(k) for k in SQL_KEYWORDS) + r")\b"
-
     def repl(match: re.Match[str]) -> str:
         token = match.group(0).upper()
         return f"/*!50000{token}*/"
 
-    return _replace_random_match(text, keyword_re, repl, rng, flags=re.IGNORECASE)
+    return _replace_random_match(text, _KEYWORD_RE.pattern, repl, rng, flags=re.IGNORECASE)
 
 
 def op_many_mysql_executable_comments(text: str, rng: random.Random) -> str:
     del rng
-    keyword_re = r"\b(" + "|".join(re.escape(k) for k in SQL_KEYWORDS) + r")\b"
 
     def repl(match: re.Match[str]) -> str:
         return f"/*!50000{match.group(0).upper()}*/"
 
-    return re.sub(keyword_re, repl, text, flags=re.IGNORECASE)
+    return _KEYWORD_RE.sub(repl, text)
 
 
 CONSERVATIVE_OPERATORS = [
@@ -419,14 +527,7 @@ def _official_wafamole_operator_set() -> list[SqlMutationOperator]:
 
         def make_fn(fn: Callable[[str], str]) -> MutationFn:
             def wrapped(text: str, rng: random.Random) -> str:
-                state = random.getstate()
-                random.setstate(rng.getstate())
-                try:
-                    mutated = fn(text)
-                    rng.setstate(random.getstate())
-                    return mutated
-                finally:
-                    random.setstate(state)
+                return _call_with_rng(fn, text, rng)
 
             return wrapped
 
@@ -510,11 +611,27 @@ def _candidate_texts(
     rng: random.Random,
     candidates_per_state: int,
     max_chars: int,
+    grad_fn: "GradFn | None" = None,
 ) -> list[tuple[str, tuple[str, ...]]]:
+    # Compute gradient-guided operator weights once per state (one forward+backward pass).
+    op_weights: list[float] | None = None
+    if grad_fn is not None:
+        try:
+            importances = grad_fn(state.text)
+            if importances is not None and len(importances) > 0:
+                from experiments.formal.tokenization import tokenize_sql  # local import to avoid circular
+                tokens = tokenize_sql(state.text)
+                op_weights = _operator_weights_from_importances(operators, tokens, importances)
+        except Exception:
+            op_weights = None
+
     candidates: list[tuple[str, tuple[str, ...]]] = []
     seen = {state.text}
     for _ in range(candidates_per_state):
-        op = rng.choice(operators)
+        if op_weights is not None:
+            (op,) = rng.choices(operators, weights=op_weights, k=1)
+        else:
+            op = rng.choice(operators)
         mutated = op.fn(state.text, rng)
         if mutated == state.text or mutated in seen:
             continue
@@ -536,6 +653,7 @@ def targeted_evasion_search(
     success_threshold: float = 0.5,
     max_chars: int = 640,
     early_stop: bool = True,
+    grad_fn: "GradFn | None" = None,
 ) -> TargetedSearchResult:
     rng = random.Random(seed)
     operator_list = list(operators)
@@ -576,7 +694,7 @@ def targeted_evasion_search(
         raw_candidates: list[tuple[str, tuple[str, ...]]] = []
         seen_texts = {state.text for state in beam}
         for state in beam:
-            for text, chain in _candidate_texts(state, operator_list, rng, candidates_per_state, max_chars):
+            for text, chain in _candidate_texts(state, operator_list, rng, candidates_per_state, max_chars, grad_fn=grad_fn):
                 if text in seen_texts or text in visited_texts:
                     continue
                 seen_texts.add(text)
@@ -622,3 +740,137 @@ def targeted_evasion_search(
         chain=best.chain,
         history=tuple(history),
     )
+
+
+def targeted_evasion_search_many(
+    source_texts: list[str],
+    score_fn: ScoreFn,
+    seeds: list[int],
+    operators: Iterable[SqlMutationOperator],
+    steps: int = 12,
+    candidates_per_state: int = 24,
+    beam_size: int = 3,
+    success_threshold: float = 0.5,
+    max_chars: int = 640,
+    early_stop: bool = True,
+    grad_fn: "GradFn | None" = None,
+) -> list[TargetedSearchResult]:
+    if len(source_texts) != len(seeds):
+        raise ValueError("source_texts and seeds must have the same length")
+
+    operator_list = list(operators)
+    if not operator_list:
+        raise ValueError("operators must not be empty")
+
+    global_score_cache: dict[str, float] = {}
+
+    def score_texts(texts: list[str]) -> list[float]:
+        missing = list(dict.fromkeys(text for text in texts if text not in global_score_cache))
+        if missing:
+            probs = [float(x) for x in score_fn(missing)]
+            global_score_cache.update(zip(missing, probs))
+        return [global_score_cache[text] for text in texts]
+
+    source_probs = score_texts(source_texts)
+    sessions: list[_SearchSession] = []
+    for source_text, seed, source_prob in zip(source_texts, seeds, source_probs):
+        best = CandidateState(text=source_text, prob=source_prob, chain=())
+        done = bool(early_stop and source_prob < success_threshold)
+        sessions.append(
+            _SearchSession(
+                source_text=source_text,
+                source_prob=source_prob,
+                rng=random.Random(seed),
+                best=best,
+                beam=[best],
+                visited_texts={source_text},
+                queries=1,
+                history=[],
+                done=done,
+            )
+        )
+
+    for step in range(1, steps + 1):
+        pending: list[tuple[_SearchSession, list[tuple[str, tuple[str, ...]]]]] = []
+        batch_missing: list[str] = []
+        batch_missing_seen: set[str] = set()
+        any_active = False
+
+        for session in sessions:
+            if session.done:
+                continue
+            any_active = True
+            raw_candidates: list[tuple[str, tuple[str, ...]]] = []
+            seen_texts = {state.text for state in session.beam}
+            for state in session.beam:
+                for text, chain in _candidate_texts(
+                    state,
+                    operator_list,
+                    session.rng,
+                    candidates_per_state,
+                    max_chars,
+                    grad_fn=grad_fn,
+                ):
+                    if text in seen_texts or text in session.visited_texts:
+                        continue
+                    seen_texts.add(text)
+                    raw_candidates.append((text, chain))
+
+            if not raw_candidates:
+                session.history.append({"step": step, "candidates": 0, "best_prob": session.best.prob})
+                session.done = True
+                continue
+
+            pending.append((session, raw_candidates))
+            for text, _ in raw_candidates:
+                if text in global_score_cache or text in batch_missing_seen:
+                    continue
+                batch_missing_seen.add(text)
+                batch_missing.append(text)
+
+        if not any_active:
+            break
+
+        if batch_missing:
+            score_texts(batch_missing)
+
+        for session, raw_candidates in pending:
+            texts = [item[0] for item in raw_candidates]
+            probs = [global_score_cache[text] for text in texts]
+            session.visited_texts.update(texts)
+            session.queries += len(texts)
+            ranked = sorted(zip(raw_candidates, probs), key=lambda item: item[1])
+
+            step_states = [
+                CandidateState(text=text, prob=prob, chain=chain)
+                for (text, chain), prob in ranked[: max(beam_size, 1)]
+            ]
+            if step_states and step_states[0].prob < session.best.prob:
+                session.best = step_states[0]
+            session.beam = sorted(step_states + session.beam, key=lambda item: item.prob)[: max(beam_size, 1)]
+            session.history.append(
+                {
+                    "step": step,
+                    "candidates": len(texts),
+                    "best_prob": session.best.prob,
+                    "best_chain": list(session.best.chain),
+                }
+            )
+            if early_stop and session.best.prob < success_threshold:
+                session.done = True
+
+    return [
+        TargetedSearchResult(
+            source_text=session.source_text,
+            adversarial_text=session.best.text,
+            source_prob=session.source_prob,
+            adversarial_prob=session.best.prob,
+            success=session.best.prob < success_threshold,
+            changed=session.best.text != session.source_text,
+            steps=len(session.history),
+            queries=session.queries,
+            chain=session.best.chain,
+            history=tuple(session.history),
+        )
+        for session in sessions
+    ]

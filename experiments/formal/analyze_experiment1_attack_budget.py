@@ -39,6 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--operator-set", choices=["conservative", "wafamole_style", "official_wafamole"], default="official_wafamole")
     parser.add_argument("--max-chars", type=int, default=896)
     parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--attack-search-group-size", type=int, default=32)
     parser.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
 
     parser.add_argument(
@@ -129,6 +130,7 @@ def main() -> None:
                     threshold=args.threshold,
                     max_chars=args.max_chars,
                     early_stop=True,
+                    group_size=args.attack_search_group_size,
                 )
                 adv_view = [
                     {**row, "mutated": False, "source_text": row["text"], "mutation_family": None}
