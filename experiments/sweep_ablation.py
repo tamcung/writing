@@ -95,6 +95,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--channels", type=int, default=128)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--dropout", type=float, default=0.25)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--local-files-only", dest="local_files_only", action="store_true", default=True)
+    group.add_argument("--allow-download", dest="local_files_only", action="store_false")
     return parser.parse_args()
 
 
