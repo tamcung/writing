@@ -16,6 +16,6 @@ if [[ ! -f external/WAF-A-MoLE/wafamole/payloadfuzzer/sqlfuzzer.py ]]; then
   git clone --depth 1 https://github.com/AvalZ/WAF-A-MoLE.git external/WAF-A-MoLE
 fi
 
-pip install -q sqlparse networkx
+pip install -q "torch>=2.6" sqlparse networkx
 
 echo "Experiment 1 inputs are ready."
