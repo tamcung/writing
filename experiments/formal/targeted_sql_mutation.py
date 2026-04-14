@@ -512,6 +512,53 @@ OPERATOR_SETS: dict[str, list[SqlMutationOperator]] = {
 }
 
 
+_LIMIT_SUBQUERY_RE = re.compile(r"\bLIMIT\b[^;]*\(SELECT\b", re.IGNORECASE)
+
+
+def _is_official_output_valid(text: str) -> bool:
+    """
+    Guard against three known semantic bugs in official WAF-A-MoLE operators:
+
+    1. spaces_to_whitespaces_alternatives injects \\xa0, which MySQL does NOT
+       treat as whitespace — the query becomes syntactically invalid.
+
+    2. comment_rewriting builds /*<random_string>*/ but random_string() draws
+       from string.punctuation, so it can produce '*/' inside the comment,
+       closing it early and exposing the remainder as raw SQL.
+
+    3. swap_int_repr wraps integers as (SELECT n), but applying this inside a
+       LIMIT clause (e.g. LIMIT (SELECT 10)) is illegal in MySQL.
+    """
+    # Bug 1: \xa0 is not a valid MySQL token separator.
+    if "\xa0" in text:
+        return False
+
+    # Bug 2: walk the text tracking comment depth; a negative depth means a
+    # spurious */ closed a comment that was never opened (or a random_string
+    # injected */ inside an existing comment, splitting it).
+    depth = 0
+    i = 0
+    while i < len(text):
+        if text[i : i + 2] == "/*":
+            depth += 1
+            i += 2
+        elif text[i : i + 2] == "*/":
+            depth -= 1
+            if depth < 0:
+                return False  # */ outside any open comment
+            i += 2
+        else:
+            i += 1
+    if depth != 0:
+        return False  # unclosed /*
+
+    # Bug 3: (SELECT …) is not a valid argument to LIMIT in MySQL.
+    if _LIMIT_SUBQUERY_RE.search(text):
+        return False
+
+    return True
+
+
 def _official_wafamole_operator_set() -> list[SqlMutationOperator]:
     wafamole_root = Path(__file__).resolve().parents[2] / "external" / "WAF-A-MoLE"
     if str(wafamole_root) not in sys.path:
@@ -527,7 +574,10 @@ def _official_wafamole_operator_set() -> list[SqlMutationOperator]:
 
         def make_fn(fn: Callable[[str], str]) -> MutationFn:
             def wrapped(text: str, rng: random.Random) -> str:
-                return _call_with_rng(fn, text, rng)
+                result = _call_with_rng(fn, text, rng)
+                # Treat structurally broken outputs as no-ops so _candidate_texts
+                # discards them rather than scoring invalid SQL against the model.
+                return result if _is_official_output_valid(result) else text
 
             return wrapped
 
