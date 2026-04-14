@@ -173,7 +173,7 @@ def evaluate_view(model, rows: list[dict], seed: int, backbone: str, view: str, 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--splits-dir", default="data/derived/formal_v3/experiment1/splits")
+    parser.add_argument("--splits-dir", default="data/derived/formal_modsec_decoded/experiment1/splits")
     parser.add_argument("--backbones", nargs="+", default=["word_svc", "textcnn", "bilstm"])
     parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33, 44, 55, 66, 77, 88, 99, 111])
     parser.add_argument("--output", default="experiments/formal/results_experiment1_targeted_attack.json")
@@ -189,7 +189,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidates-per-state", type=int, default=24)
     parser.add_argument("--beam-size", type=int, default=3)
     parser.add_argument("--threshold", type=float, default=0.5)
-    parser.add_argument("--max-chars", type=int, default=640)
+    parser.add_argument("--max-chars", type=int, default=896)
     parser.add_argument("--no-early-stop", action="store_true")
     parser.add_argument("--hard-negative-extra", type=int, default=0)
     parser.add_argument("--hard-negative-min-score", type=float, default=1.0)
@@ -201,7 +201,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--max-tokens", type=int, default=128)
+    parser.add_argument("--max-tokens", type=int, default=256)
     parser.add_argument("--max-vocab", type=int, default=20000)
     parser.add_argument("--min-freq", type=int, default=1)
     parser.add_argument("--lowercase", action="store_true")
@@ -214,7 +214,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name", default="microsoft/codebert-base")
     parser.add_argument("--codebert-epochs", type=int, default=2)
     parser.add_argument("--codebert-batch-size", type=int, default=8)
-    parser.add_argument("--max-len", type=int, default=320)
+    parser.add_argument("--max-len", type=int, default=512)
     parser.add_argument("--codebert-lr", type=float, default=1e-3)
     parser.add_argument("--encoder-lr", type=float, default=2e-5)
     parser.add_argument("--codebert-dropout", type=float, default=0.1)

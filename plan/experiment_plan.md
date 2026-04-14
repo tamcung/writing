@@ -1,356 +1,268 @@
 # 正式实验方案
 
-## 一、实验目标
+## 一、当前重构口径
 
-本组正式实验只回答三个问题：
+从 `2026-04-14` 起，正式实验主线切换为 `formal_modsec_decoded`：
 
-1. 现有 SQL 注入检测器在语义保持变形和外部分布偏移下是否会显著失稳。
-2. `pair_proj_ce` 是否比普通监督训练和普通配对增强更鲁棒。
-3. 鲁棒性提升究竟来自“看到了更多变形样本”，还是来自“显式的表示学习约束”。
+- 不再以 `SQLiV3_clean` 作为主训练集。
+- 不再以 `SQLiV5` 作为正文主变形验证集。
+- 旧 `formal_v3` 结果保留为探索记录和备选材料，但后续正式设计、命令和结论优先使用 `formal_modsec_decoded`。
+- 当前主数据集为 `ModSec-Learn` 的 value-only length-matched windows 视图。
 
-## 二、数据集收敛
+这次重构的动机是：`SQLiV3` 的 benign 中存在大量合法 SQL-like 文本，导致数据分布更接近“SQL 语句分类”；而 `ModSec-Learn` 更接近 HTTP 参数 / payload 级输入。进一步审计发现，原始 `key=value` 形式存在 key 结构泄漏：SQLi 样本几乎全部为 `p=payload`，因此正式主线去除参数名，仅保留参数值。
 
-### 1. 正文主训练集：`SQLiV3_clean`
+## 二、数据集处理
 
-- 文件：`data/raw/SQLiV3_clean.json`
-- 角色：主训练集 + 同分布测试集
-- 保留字段：payload 文本 `pattern` 与标签 `type`
-- 正式版本：`formal_v3`
-- 正式规则：
-  - `max_len = 320`
-  - 不再剔除完整 SQL-like 样本
-  - 去除空文本
-  - 仅保留 `valid` 和 `sqli`
-  - 以文本去重；若同一文本出现冲突标签，则直接丢弃
-  - 统一按参数 / payload / pattern 级字符串处理
-- 当前过滤后规模：
-  - 总计 `29895`
-  - benign `19494`
-  - sqli `10401`
-- 选择原因：
-  - 干净、稳定，便于方法开发与多 seed 对比
-  - 与 `SQLiV5` / `WAF-A-MoLE` 路线天然衔接
-  - 适合作为全文统一主训练源
-
-### 2. 正文主变形基准：`targeted_official_wafamole`
-
-- 角色：主语义保持变形鲁棒性测试
-- formal 构造模块：
-  - `experiments/formal/targeted_sql_mutation.py`
-  - `experiments/formal/run_experiment1_targeted_attack.py`
-  - `experiments/formal/run_experiment2_pair_training_targeted.py`
-- 变形算子来源：WAF-A-MoLE 官方 `SqlFuzzer.strategies`
-- 测试协议：
-  - 对测试集 SQLi 样本执行有限预算目标导向搜索
-  - 每轮生成多个官方算子变形候选
-  - 用当前检测器的 SQLi 概率排序
-  - 保留低置信度候选继续搜索
-  - 若 SQLi 概率低于 `0.5`，记为攻击成功
-- 选择原因：
-  - 直接对应本文“语义保持变形绕过 ML 型 SQLi 检测器”的核心问题
-  - 比静态随机变形更能暴露模型弱点
-  - 算子来源有文献和开源工具背书，避免把自造弱变形作为主证据
-
-### 3. 真实变形补充基准：`SQLiV5`
-
-- 文件：`data/raw/SQLiV5.json`
-- 角色：WAF-A-MoLE 风格真实变形测试
-- 使用方式：
-  - 不作为主训练集
-  - 作为对 `targeted_official_wafamole` 的补充验证
-  - 正文中强调其与 `WAF-A-MoLE` 路线的对应关系
-- 选择原因：
-  - 直接对应“语义保持变形绕过”相关文献
-  - 能证明方法对真实攻击风格变形的有效性
-- 风险说明：
-  - 其分布与 `SQLiV3` 关系较近
-  - 不宜作为唯一变形证据
-- 当前审计结果：
-  - 过滤后总计 `36740`
-  - benign `19494`
-  - sqli `17246`
-  - 与 `SQLiV3_clean` exact overlap `29895`
-  - 未见于 `SQLiV3_clean` 的新增 SQLi `6845`
-- 正式口径：
-  - 不报告“整个 SQLiV5”上的结果作为主证据
-  - 优先报告其新增 SQLi 部分，作为真实变形补充基准
-
-### 4. 正文主外部集：`ModSec-Learn-cleaned`
+### 1. 主数据集：`modsec_learn_value_windows`
 
 - 原始来源：`https://github.com/pralab/modsec-learn-dataset`
-- 角色：主跨数据集 / 外部分布泛化测试
-- 清洗原则：
-  - 恶意部分去掉 `sqli_kaggle` 来源，避免与 `SQLiV3_clean` 的同源性过强
-  - 再删掉与 `SQLiV3_clean` 的 exact overlap
-  - 良性部分保留 `openappsec`
-  - 恶意部分优先保留 `sqlmap`、`httpparams`、`openappsec`
-- 选择原因：
-  - 公开可获取
-  - 来源混合，能较好体现跨源外部泛化
-  - 比单一数据源更接近真实 WAF 场景
-- 当前清洗后规模：
-  - 总计 `50724`
-  - benign `34798`
-  - sqli `15926`
-  - 与 `SQLiV3_clean` exact overlap `0`
-- 来源保留情况：
-  - benign：`openappsec`
-  - malicious：`openappsec`、`httpparams`、`sqlmap`
-  - excluded：`sqli_kaggle`
-
-### 5. 补充外部集：`web-attacks-long`
-
-- 文件：`data/raw/web_attacks_long/test.csv`
-- 角色：补充外部分布验证
+- 处理脚本：`experiments/formal/prepare_modsec_decoded_dataset.py`
+- processed 目录：`data/processed/formal_modsec_decoded`
+- 主数据文件：`data/processed/formal_modsec_decoded/datasets/modsec_learn_value_windows.json`
 - 处理规则：
-  - 仅保留 `normal` 和 `SQLi`
-  - 去除空文本
-  - 去除长度超过 `320` 字符的样本
-  - 按文本去重
-  - 去掉与 `SQLiV3_clean` 完全相同的样本
-  - 按 seed 做类别平衡采样
-- 当前过滤后规模：
-  - 总计 `3477`
-  - benign `942`
-  - sqli `2535`
-  - 与 `SQLiV3_clean` 的 overlap 审计以 `formal_v3/manifest.json` 为准
-- 选择原因：
-  - 与主训练源差异较大
-  - 可作为第二外部证据增强说服力
+  - 默认排除 `sqli_kaggle` 来源，降低与常见 Kaggle SQLi 数据的同源风险。
+  - 从原始 query-string 中解析参数值，并对参数值做一次 `URL decode` / `unquote_plus`。
+  - 对 SQLi 样本，去除 `p=` 等参数名，仅保留 payload value。
+  - 对 benign 样本，去除参数名后，将同一请求中的多个短 value 拼成长度匹配窗口。
+  - benign window 默认最小长度为 `32`，目标长度为 `96`，每条原始 benign 请求最多构造 `1` 个窗口。
+  - value 拼接使用普通空格，不引入 `[PARAM]` 等只在 benign 中出现的专用分隔符。
+  - 删除空文本。
+  - 删除解码/构造后长度超过 `448` 的文本。
+  - 按文本去重；若同一文本存在冲突标签则丢弃。
+  - benign / legitimate 映射为 `0`，SQLi / malicious 映射为 `1`。
 
-### 6. 不进入正文主实验的数据集
+当前 processed 规模：
 
-- `HttpParamsDataset`
-  - 原因：保留作相关工作对齐与讨论，不作为本论文最终主数据方案
-- `ai-waf-dataset`
-  - 原因：是多攻击类型请求级数据，不是纯 SQLi payload 二分类
+- 总计：`70267`
+- benign：`50721`
+- SQLi：`19546`
+- `decode_passes = 1`
+- `max_len = 448`
 
-## 三、样本处理与配对规范
+同时保留 `modsec_learn_decoded` 作为审计/消融视图，但不作为当前主实验默认输入。
 
-### 0. 正式输入层
+### 2. 切分协议
 
-- 从现在开始，正式实验统一读取：
-  - `data/processed/formal_v3/datasets/*.json`
-- 不再直接从 `data/raw/*` 或历史试验脚本中读取
-- 当前统一入口脚本：
-  - `experiments/formal/prepare_raw_datasets.py`
-- 当前统一清洗模块：
-  - `experiments/formal/raw_processing.py`
-- 当前统一变形模块：
-  - `experiments/formal/semantic_mutation.py`
-  - `experiments/formal/targeted_sql_mutation.py`
-- 当前配对训练集：
-  - `data/derived/formal_v3/experiment2/pairs/seed_*/train_pairs.json`
-  - 构造脚本：`experiments/formal/build_experiment2_pairs.py`
-- 当前统一 manifest：
-  - `data/processed/formal_v3/manifest.json`
-
-### 1. 标签统一
-
-- benign / normal / valid 统一映射为 `0`
-- sqli / SQLi 统一映射为 `1`
-
-### 2. 数据集与实验视图区分
-
-- `sqliv3_clean`、`sqliv5`、`modsec_learn_cleaned`、`web_attacks_long_test`
-  - 这些是 formal 输入层里的基础数据集
-- `sqliv3_clean_holdout`
-  - 不是独立数据集
-  - 而是从 `sqliv3_clean` 按 seed 做分层抽样后切出的同分布测试视图
-- `targeted_official_wafamole`
-  - 不是独立数据集
-  - 而是基于 `sqliv3_clean_holdout` 中的恶意样本，再通过官方 WAF-A-MoLE 算子和目标导向搜索得到的变形测试视图
-
-### 3. 训练/测试划分
-
-- 基于 `SQLiV3_clean` 做按类采样切分
-- 基于 processed 版本的 `sqliv3_clean.json` 做按类采样切分
+- split 目录：`data/derived/formal_modsec_decoded/experiment1/splits`
+- 切分脚本：`experiments/formal/build_experiment1_splits.py`
 - 每个 seed 固定：
-  - 训练集：每类 `1000`
-  - 验证集：每类 `200`
-  - 干净测试集：每类 `1000`
-- 说明：
-  - 也便于跨 backbone 的公平比较
+  - train：每类 `3000`
+  - valid：每类 `500`
+  - clean_test：每类 `3000`
+- seeds：
+  - `11 22 33 44 55 66 77 88 99 111`
 
-### 4. 配对样本定义
+### 3. 配对训练数据
 
-- `x_canon`
-  - 训练集中原始 payload
-- `x_raw_mut`
-  - 对 `x_canon` 施加语义保持变形后的样本
-- 恶意样本对：
-  - 使用 WAF-A-MoLE 官方 SQL 变形算子随机构造
-  - 正式默认 `rounds=5`
-- 良性样本对：
-  - 不做 SQLi 语义变形
-  - 使用 nuisance 级表面扰动，例如大小写与空白表示变化
-  - 目的是防止模型将“发生变形”误学成“恶意”
+- pair 目录：`data/derived/formal_modsec_decoded/experiment2/pairs`
+- 构造脚本：`experiments/formal/build_experiment2_pairs.py`
+- SQLi 侧：
+  - 使用 WAF-A-MoLE 官方 SQL-level operators 随机多轮变形。
+  - 默认 `mutation_rounds = 7`，`mutation_retries = 8`，`max_chars = 896`。
+- benign 侧：
+  - 不使用 SQL 语义变形。
+  - 使用 HTTP 参数级 URL 等价编码作为 nuisance transform。
+  - 目的：让 benign 样本也出现表面变化，避免模型学习到 `changed => malicious` 的捷径。
 
-### 5. 变形策略使用原则
+当前 pair 构造结果：
 
-- 训练时：
-  - `clean_ce` 仅使用干净样本
-  - `pair_ce / pair_proj_ce / pair_canonical` 使用官方 WAF-A-MoLE 算子的随机变形样本构造训练对
-- 测试时：
-  - 主变形测试使用官方 WAF-A-MoLE 算子的目标导向搜索
-  - 真实变形补充测试使用 `SQLiV5`
-- 这对应论文里的核心概念：
-  - 不是只比较静态增强样本
-  - 而是比较有限预算目标导向攻击下的鲁棒性
+- 每个 seed：`6000` 对。
+- SQLi changed rate：均值约 `0.9998`，最小值约 `0.9993`。
+- benign changed rate：`1.0000`。
+- SQLi 平均有效变形链长：约 `4.06-4.14`。
 
-## 四、正式实验矩阵
+轮数选择依据，保留为正式配置说明：
+
+- 先做构造侧审计，再做轻量下游验证，不凭经验拍脑袋定轮数。
+- 构造侧结果：
+  - `1` 轮时 `sqli_changed_rate` 约 `0.985`，仍有少量样本无法稳定改写。
+  - 从 `3` 轮开始，`sqli_changed_rate` 已达 `1.000`，说明“是否发生变化”这一目标已基本饱和。
+  - 更高轮数主要继续增加变形链长度与长度膨胀。
+- `TextCNN + pair_canonical` 三 seed 探索性验证结果：
+  - targeted recall：`1轮 0.9067`，`3轮 0.9100`，`5轮 0.9100`，`7轮 0.9533`，`8轮 0.9600`
+  - attack success：`1轮 0.0933`，`3轮 0.0900`，`5轮 0.0900`，`7轮 0.0467`，`8轮 0.0400`
+- 选择 `7` 而不是 `8` 的原因：
+  - `7` 相比 `5` 出现了更明显的鲁棒性提升；
+  - `8` 相比 `7` 只有边际收益，但长度膨胀继续增大。
+  - 因此 `7` 更适合作为“收益与分布代价折中”下的默认配置。
+
+## 三、变形测试协议
+
+正式变形测试使用“基于 WAF-A-MoLE 官方 SQL 变形算子的有限预算目标导向搜索”。
+
+- 算子来源：WAF-A-MoLE 官方 `SqlFuzzer.strategies`
+- 当前使用的官方算子：
+  - `spaces_to_comments`
+  - `random_case`
+  - `swap_keywords`
+  - `swap_int_repr`
+  - `spaces_to_whitespaces_alternatives`
+  - `comment_rewriting`
+  - `change_tautologies`
+  - `logical_invariant`
+  - `reset_inline_comments`
+- 搜索逻辑：
+  - 对 clean_test 中的 SQLi 样本生成多轮候选变形。
+  - 使用当前检测器输出的 SQLi 概率给候选排序。
+  - 保留 SQLi 概率最低的若干候选继续搜索。
+  - 若候选 SQLi 概率低于 `0.5`，记为攻击成功并提前停止。
+  - 若预算耗尽仍未低于 `0.5`，保留最低概率候选用于评估。
+- 正式默认预算：
+  - `search_steps = 20`
+  - `candidates_per_state = 48`
+  - `beam_size = 5`
+  - `attack_per_class = 300`
+  - `threshold = 0.5`
+
+## 四、实验矩阵
 
 ### 实验 1：问题存在性验证
 
-- 目的：证明同分布高分并不代表鲁棒
-- 对象：
-  - `word-SVC`
-  - `BiLSTM`
-  - `TextCNN`
-  - `CodeBERT`
-- 方法：
-  - `clean_ce`
-- 测试视图：
-  - `sqliv3_clean_holdout`
-  - `targeted_official_wafamole`
-- 正文产出：
-  - 一张“变形前 vs 变形后”的问题存在性主表
+目的：验证普通 SQLi 检测器在 ModSec-decoded 参数级数据上，即使 clean 测试表现很高，面对 WAF-A-MoLE 式目标导向语义保持变形仍会退化。
+
+训练方法：
+
+- `clean_ce`
+
+模型：
+
+- `word_svc`
+- `textcnn`
+- `bilstm`
+- `codebert`，单独跑，避免拖慢经典模型实验。
+
+测试视图：
+
+- `clean_attack_matched`
+- `targeted_official_wafamole`
+
+主要指标：
+
+- `F1`
+- `Recall`
+- `Attack Success Rate`
+- `p10_sqli_prob`
+- `mean_prob_drop`
+- `mean_queries`
+
+长度调整前 probe 结果，非正式，仅保留为调参参考：
+
+- `textcnn`, seed `11`, `attack_per_class=100`, `steps=20`, `candidates=48`, `beam=5`
+- `clean_ce`: clean F1 `1.0000`，targeted F1 `0.8166`，targeted recall `0.6900`，attack success `0.3100`。
+
+当前 `max_len=448` 口径已完成 smoke 验证，但还没有重新跑中等预算 probe；是否仍稳定退化需要 10-seed 正式结果确认。
 
 ### 实验 2：主方法有效性验证
 
-- 目的：证明 `pair_proj_ce` 优于普通监督和普通配对增强
-- 主角 backbone：
-  - `CodeBERT`
-- 强对照：
-  - `TextCNN`
-- 补充：
-  - `BiLSTM`
-- 对比方法：
-  - `clean_ce`
-  - `pair_ce`
-  - `pair_proj_ce`
-  - `pair_canonical` 作为消融扩展
-- 测试视图：
-  - `clean_attack_matched`
-  - `targeted_official_wafamole`
-- 正文产出：
-  - 一张主方法对比表
-  - 一张目标导向攻击成功率对比表
+目的：验证配对训练、projection representation 和 canonical-anchor alignment 是否能降低目标导向变形攻击成功率。
 
-### 实验 3：机制与消融实验
+方法：
 
-- 目的：解释主增益来自哪里
-- 主对象：
-  - `CodeBERT`
-- 对比：
-  - `pair_ce` vs `pair_proj_ce`
-  - `pair_proj_ce` vs `pair_canonical`
-- 分析点：
-  - `F1`
-  - `Recall`
-  - `P10 SQLi probability`
-  - `Attack Success Rate`
-  - `mean_queries`
-- 正文产出：
-  - 一张消融表
-  - 一张 hardest samples 置信度对比图
-  - 一张 `SQLiV5` 补充结果表
+- `clean_ce`：只使用干净样本做普通监督训练。
+- `pair_ce`：对 `x_canon` 和 `x_raw_mut` 同时做分类交叉熵。
+- `pair_proj_ce`：使用 projector 表示做分类，检验 projection 本身是否有用。
+- `pair_canonical`：在 `pair_proj_ce` 基础上增加变形样本向 canonical anchor 表示靠近的对齐损失，作为当前主候选。
 
-### 实验 4：架构泛化对比
+模型：
 
-- 目的：说明 `pair_proj_ce` 的收益是否依赖 backbone
-- 对象：
-  - `BiLSTM`
-  - `TextCNN`
-  - `CodeBERT`
-- 对比方法：
-  - `clean_ce`
-  - `pair_ce`
-  - `pair_proj_ce`
-- 说明：
-  - `word-SVC` 只作为经典基线，不进入这一张方法消融表
+- `textcnn`
+- `bilstm`
+- `codebert`，单独跑。
 
-### 实验 5：补充外部验证
+长度调整前 probe 结果，非正式，仅保留为调参参考：
 
-- 目的：增强跨数据集说服力
-- 数据集：
-  - `web-attacks-long`
-- 对象：
-  - `CodeBERT`
-  - `TextCNN`
-- 方法：
-  - `clean_ce`
-  - `pair_ce`
-  - `pair_proj_ce`
+| 方法 | clean F1 | targeted F1 | targeted recall | p10 | attack success | mean drop |
+|---|---:|---:|---:|---:|---:|---:|
+| `clean_ce` | `1.0000` | `0.8166` | `0.6900` | `0.2230` | `0.3100` | `0.2567` |
+| `pair_ce` | `1.0000` | `0.8235` | `0.7000` | `0.2903` | `0.3000` | `0.2361` |
+| `pair_proj_ce` | `0.9950` | `0.8304` | `0.7100` | `0.3018` | `0.2900` | `0.2161` |
+| `pair_canonical` | `1.0000` | `0.8636` | `0.7600` | `0.2222` | `0.2400` | `0.1857` |
 
-### 实验 6：系统验证实验
+初步判断：
 
-- 目的：支撑“研究与实现”
-- 最终模型：
-  - `CodeBERT + pair_proj_ce`
-- 内容：
-  - 单条 payload 检测
-  - 批量检测
-  - 置信度输出
-  - 典型成功样例与失败样例展示
+- `pair_canonical` 在长度调整前的单 seed probe 中优于 `pair_ce` 和 `pair_proj_ce`。
+- 改善幅度存在，但不算巨大，需要在 `max_len=448` 口径下用 10-seed 正式结果确认稳定性。
+- `p10_sqli_prob` 未同步提升，说明后续分析不能只挑单一指标，需要同时报告 recall、success 和 mean drop。
 
-## 五、正文与附录的边界
+## 五、正式运行建议
 
-### 正文保留
+经典模型正式实验建议先跑：
 
-- `SQLiV3_clean`
-- `targeted_official_wafamole`
-- `SQLiV5`
-- `ModSec-Learn-cleaned`
-- `web-attacks-long`
-- `CodeBERT / TextCNN / BiLSTM / word-SVC`
-- `clean_ce / pair_ce / pair_proj_ce`
-- `pair_canonical` 仅作为消融扩展
+```bash
+python -u experiments/formal/run_experiment1_targeted_attack.py \
+  --splits-dir data/derived/formal_modsec_decoded/experiment1/splits \
+  --backbones word_svc textcnn bilstm \
+  --seeds 11 22 33 44 55 66 77 88 99 111 \
+  --operator-set official_wafamole \
+  --attack-per-class 300 \
+  --search-steps 20 \
+  --candidates-per-state 48 \
+  --beam-size 5 \
+  --max-chars 896 \
+  --epochs 8 \
+  --batch-size 128 \
+  --max-tokens 256 \
+  --lowercase \
+  --device mps \
+  --resume \
+  --output experiments/formal/results_modsec_decoded_experiment1_classic_10seed.json
+```
 
-### 附录或补充材料
+```bash
+python -u experiments/formal/run_experiment2_pair_training_targeted.py \
+  --splits-dir data/derived/formal_modsec_decoded/experiment1/splits \
+  --backbones textcnn bilstm \
+  --methods clean_ce pair_ce pair_proj_ce pair_canonical \
+  --seeds 11 22 33 44 55 66 77 88 99 111 \
+  --pairs-dir data/derived/formal_modsec_decoded/experiment2/pairs \
+  --require-pairs \
+  --attack-per-class 300 \
+  --search-steps 20 \
+  --candidates-per-state 48 \
+  --beam-size 5 \
+  --max-chars 896 \
+  --pair-max-chars 896 \
+  --train-operator-set official_wafamole \
+  --attack-operator-set official_wafamole \
+  --epochs 8 \
+  --batch-size 128 \
+  --max-tokens 256 \
+  --lowercase \
+  --device mps \
+  --resume \
+  --output experiments/formal/results_modsec_decoded_experiment2_classic_10seed.json
+```
 
-- `CharCNN`
-- 早期自定义 semantic family holdout
-- `boolean_equivalent` 单独结果
-- 自定义 `wafamole_style` 扩展
-- `ai-waf-dataset`
-- 各种历史试验性对比
+CodeBERT 单独跑，避免和经典模型互相拖慢：
 
-## 六、统计与报告规范
+```bash
+python -u experiments/formal/run_experiment2_pair_training_targeted.py \
+  --splits-dir data/derived/formal_modsec_decoded/experiment1/splits \
+  --backbones codebert \
+  --methods clean_ce pair_ce pair_proj_ce pair_canonical \
+  --seeds 11 22 33 44 55 66 77 88 99 111 \
+  --pairs-dir data/derived/formal_modsec_decoded/experiment2/pairs \
+  --require-pairs \
+  --attack-per-class 300 \
+  --search-steps 20 \
+  --candidates-per-state 48 \
+  --beam-size 5 \
+  --max-chars 896 \
+  --pair-max-chars 896 \
+  --train-operator-set official_wafamole \
+  --attack-operator-set official_wafamole \
+  --codebert-epochs 2 \
+  --codebert-batch-size 16 \
+  --max-len 512 \
+  --allow-download \
+  --device cuda \
+  --resume \
+  --output experiments/formal/results_modsec_decoded_experiment2_codebert_10seed.json
+```
 
-### 1. 随机种子
+## 六、当前风险
 
-- 主结果统一使用 `10 seeds`
-- seed 集合固定，全文保持一致
-
-### 2. 报告方式
-
-- 每个指标报告：
-  - mean
-  - std
-  - min / max（可放附录）
-- 正文主指标：
-  - `F1`
-  - `Recall`
-  - `Precision`
-  - `P10 SQLi probability`
-  - `Attack Success Rate`
-
-### 3. 统计检验
-
-- 对同一 seed 下的模型差值做配对统计
-- 默认使用：
-  - `Wilcoxon signed-rank test`
-- 同时报告：
-  - mean difference
-  - effect size 或至少标准差
-- 多重比较时使用保守校正
-
-## 七、执行顺序
-
-1. 固定 seed 列表与统一数据过滤规则
-2. 完成 `clean_ce` 在 `targeted_official_wafamole` 下的问题存在性实验
-3. 重跑 `CodeBERT / TextCNN / BiLSTM` 的 `clean_ce / pair_ce / pair_proj_ce / pair_canonical`
-4. 单独补 `SQLiV5`、`ModSec-Learn-cleaned` 与 `web-attacks-long` 外部验证
-5. 汇总成正文主表与附录表
-6. 最后基于最佳 `CodeBERT + pair_proj_ce` 做系统展示
+- ModSec-decoded 的 SQLi 样本 SQL 关键词密度很高，clean 分类可能过于容易。
+- 当前 probe 中 `pair_canonical` 有优势，但幅度不大，必须用多 seed 判断是否稳定。
+- benign 侧 URL 等价扰动是为了控制 `changed => malicious` 捷径，但论文中必须明确它是 HTTP 参数级等价扰动，而不是 SQL 语义变形。
+- 如果正式 10-seed 结果显示优势不稳定，需要把 `formal_modsec_decoded` 定位为“更贴近参数级输入的补充主线”，而不是彻底否定旧 `formal_v3` 探索。

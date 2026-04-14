@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from experiments.formal.semantic_mutation import benign_nuisance_transform
+from experiments.formal.semantic_mutation import benign_nuisance_transform, benign_nuisance_transform_values
 from experiments.formal.targeted_sql_mutation import get_operator_set, random_operator_chain
 
 
@@ -58,7 +58,15 @@ def build_pair_rows(
                     }
                 )
             else:
-                mutated = benign_nuisance_transform(text, pair_seed)
+                value_parts = row.get("value_parts")
+                if isinstance(value_parts, list) and value_parts:
+                    mutated_values = benign_nuisance_transform_values(
+                        [str(value) for value in value_parts],
+                        pair_seed,
+                    )
+                    mutated = " ".join(mutated_values)
+                else:
+                    mutated = benign_nuisance_transform(text, pair_seed)
                 pair_rows.append(
                     {
                         "pair_id": f"seed{seed}_row{i}_pair{p}",

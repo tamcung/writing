@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import random
 import re
+import string
 from dataclasses import dataclass
 from typing import Callable
 
@@ -273,11 +274,119 @@ def mutate_with_forced_surface_mixed(text: str, seed: int, rounds: int = 3) -> M
     )
 
 
-def benign_nuisance_transform(text: str, seed: int) -> str:
-    rng = random.Random(seed)
-    current = text
-    if rng.random() < 0.5:
-        current = re.sub(r"\s+", lambda _: rng.choice([" ", "\t", "\n"]), current)
-    if rng.random() < 0.5:
-        current = _rewrite_keywords(current, rng)
+UNRESERVED_CHARS = set(string.ascii_letters + string.digits + "-._~")
+
+
+def _percent_encode_unreserved_value_chars(text: str, rng: random.Random) -> str:
+    candidates = [
+        idx
+        for idx, ch in enumerate(text)
+        if ch in UNRESERVED_CHARS
+    ]
+    if not candidates:
+        return text
+
+    count = rng.randint(1, min(6, len(candidates)))
+    chosen = set(rng.sample(candidates, count))
+    pieces: list[str] = []
+    for idx, ch in enumerate(text):
+        if idx not in chosen:
+            pieces.append(ch)
+            continue
+        encoded = f"%{ord(ch):02X}"
+        if rng.random() < 0.5:
+            encoded = encoded.lower()
+        pieces.append(encoded)
+    return "".join(pieces)
+
+
+def _space_to_form_encoding(text: str, rng: random.Random) -> str:
+    candidates = [idx for idx, ch in enumerate(text) if ch == " "]
+    if not candidates:
+        return text
+
+    count = rng.randint(1, min(4, len(candidates)))
+    chosen = set(rng.sample(candidates, count))
+    pieces: list[str] = []
+    for idx, ch in enumerate(text):
+        if idx not in chosen:
+            pieces.append(ch)
+            continue
+        pieces.append(rng.choice(["+", "%20"]))
+    return "".join(pieces)
+
+
+def _normalize_percent_hex_case(text: str, rng: random.Random) -> str:
+    def repl(match: re.Match[str]) -> str:
+        token = match.group(0)
+        return token.upper() if rng.random() < 0.5 else token.lower()
+
+    mutated = re.sub(r"%[0-9a-fA-F]{2}", repl, text)
+    return mutated
+
+
+def _benign_value_protocol_equivalent(value: str, rng: random.Random) -> str:
+    current = value
+    structural = [
+        _percent_encode_unreserved_value_chars,
+        _space_to_form_encoding,
+    ]
+    rng.shuffle(structural)
+    applied = 0
+    for transform in structural:
+        mutated = transform(current, rng)
+        if mutated != current:
+            current = mutated
+            applied += 1
+        if applied >= rng.randint(1, 2):
+            break
+    normalized = _normalize_percent_hex_case(current, rng)
+    if normalized != current:
+        current = normalized
     return current
+
+
+def benign_nuisance_transform_values(values: list[str], seed: int) -> list[str]:
+    """Apply value-level HTTP-equivalent nuisance transforms for benign pairs.
+
+    The key point is that benign perturbation happens before synthetic window
+    concatenation. This avoids treating the injected window separator as if it
+    were part of the original query value, while still giving benign samples a
+    realistic "surface changed, semantics preserved" counterpart.
+    """
+
+    rng = random.Random(seed)
+    current = [str(value) for value in values]
+    if not current:
+        return current
+
+    target_changed = rng.randint(1, min(2, len(current)))
+    indices = list(range(len(current)))
+    rng.shuffle(indices)
+    changed = 0
+
+    for idx in indices:
+        mutated = _benign_value_protocol_equivalent(current[idx], rng)
+        if mutated != current[idx]:
+            current[idx] = mutated
+            changed += 1
+        if changed >= target_changed:
+            break
+
+    if changed == 0:
+        for idx in indices:
+            mutated = _percent_encode_unreserved_value_chars(current[idx], rng)
+            if mutated != current[idx]:
+                current[idx] = mutated
+                break
+            mutated = _space_to_form_encoding(current[idx], rng)
+            if mutated != current[idx]:
+                current[idx] = mutated
+                break
+    return current
+
+
+def benign_nuisance_transform(text: str, seed: int) -> str:
+    """Fallback benign nuisance transform for already-concatenated text."""
+
+    return " ".join(benign_nuisance_transform_values(text.split(" "), seed))

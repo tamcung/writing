@@ -16,11 +16,23 @@
 
 ## 方法收敛
 
-- 主方法：`pair_proj_ce`
-  - 含义：基于配对样本的投影表示分类方法
-- 扩展机制：`pair_canonical`
-  - 作为表示对齐扩展和补充实验保留
-  - 不作为全文 headline
+- 方法线：基于原始 payload 与语义保持变形 payload 的配对表示学习
+- 当前主候选：`pair_canonical`
+  - 含义：在配对分类训练基础上，引入变形样本向原始样本表示靠近的 canonical-anchor 约束
+  - 依据：实验二经典模型 10 seed 中，`pair_canonical` 在 TextCNN 与 BiLSTM 上均取得最低攻击成功率和最高变形后召回率
+- 消融方法：`pair_proj_ce`
+  - 含义：使用 projector 后的表示进行分类
+  - 角色：用于检验投影表示本身是否优于普通 `pair_ce`
+- 当前判断：在 TextCNN 上稳定优于 `pair_ce`，在 BiLSTM 上提升不稳定，不宜作为唯一 headline
+
+## 当前正式数据口径
+
+- 正式主线切换为 `formal_modsec_decoded`。
+- 主数据集：`ModSec-Learn` 的 value-only length-matched windows 视图。
+- 当前数据层配置：`max_len = 448`，benign window `target_len = 96`；CodeBERT 输入长度单独设为 `512`。
+- pair 构造默认使用 `official_wafamole + mutation_rounds = 7 + max_chars = 896`。
+- `SQLiV3/SQLiV5` 不再作为当前正文主训练与主验证口径，只保留为历史探索和备选讨论材料。
+- 重构理由：`SQLiV3` 的 benign 中存在大量合法 SQL-like 文本，容易把任务推向“SQL 语句分类”；`ModSec-Learn` 更接近 HTTP 参数 / payload 级检测输入。为避免 `p=` 等参数名造成 key 结构泄漏，当前正式输入去除参数名，仅保留 payload/value，并对 benign 短 value 构造长度匹配窗口。
 
 ## 研究问题
 

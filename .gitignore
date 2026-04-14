@@ -27,6 +27,8 @@ experiments/formal/*.partial.json
 *.tar
 *.tar.gz
 *.zip
+!colab_experiment1_inputs.tar.gz
+!colab_experiment2_inputs.tar.gz
 
 # Model checkpoints and binary artifacts
 *.pt

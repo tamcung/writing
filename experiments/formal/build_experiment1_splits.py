@@ -22,7 +22,8 @@ def load_rows(processed_dir: Path, dataset_name: str) -> list[dict]:
     rows = json.loads((ROOT / rel_path).read_text(encoding="utf-8"))
     enriched = []
     for idx, row in enumerate(rows):
-        enriched.append(
+        enriched_row = dict(row)
+        enriched_row.update(
             {
                 "source_dataset": dataset_name,
                 "source_index": idx,
@@ -32,6 +33,7 @@ def load_rows(processed_dir: Path, dataset_name: str) -> list[dict]:
                 "origin": str(row.get("origin", row.get("source", dataset_name))),
             }
         )
+        enriched.append(enriched_row)
     return enriched
 
 
