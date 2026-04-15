@@ -15,14 +15,14 @@ COMMON="--seeds $SEEDS --attack-per-class 300 --search-steps 20
 # ── Exp1: clean model baselines ───────────────────────────────────────────────
 echo "=== Exp1-A: clean models vs official_wafamole ==="
 PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
-  --backbones word_svc textcnn bilstm codebert \
+  --backbones textcnn bilstm codebert \
   --operator-set official_wafamole \
   --output experiments/results_exp1_official.json \
   $COMMON
 
 echo "=== Exp1-B: clean models vs advsqli ==="
 PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
-  --backbones word_svc textcnn bilstm codebert \
+  --backbones textcnn bilstm codebert \
   --operator-set advsqli \
   --output experiments/results_exp1_advsqli.json \
   $COMMON
