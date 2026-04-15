@@ -24,11 +24,34 @@ from experiments.model_utils import (  # noqa: E402
 )
 from experiments.run_exp1 import attack_sqli_rows, pick_attack_rows  # noqa: E402
 from experiments.run_exp2 import load_or_build_training_pairs  # noqa: E402
-from experiments.paired_models import PairSeqConfig, PairSequenceModel  # noqa: E402
+from experiments.paired_models import PairSeqConfig, PairSequenceModel, PairCodeBERTConfig, PairCodeBERTModel  # noqa: E402
 from experiments.metrics import metrics_from_probs  # noqa: E402
 
 CONSISTENCY_WEIGHTS = [0.0, 0.01, 0.05, 0.1, 0.5, 1.0]
 ATTACK_OPERATOR_SETS = ["official_wafamole", "advsqli"]
+
+
+def train_pair_canonical_codebert(consistency_weight: float, args: argparse.Namespace, device: str, train_bundle: dict):
+    cfg = PairCodeBERTConfig(
+        method="pair_canonical",
+        seed=args.current_seed,
+        model_name=args.model_name,
+        local_files_only=args.local_files_only,
+        epochs=args.codebert_epochs,
+        batch_size=args.codebert_batch_size,
+        max_len=args.max_len,
+        lr=args.codebert_lr,
+        encoder_lr=args.encoder_lr,
+        dropout=args.codebert_dropout,
+        consistency_weight=consistency_weight,
+        canonical_logit_weight=0.0,
+        hard_align_gamma=args.hard_align_gamma,
+        align_benign_pairs=False,
+        device=device,
+    )
+    model = PairCodeBERTModel(cfg)
+    model.fit_pairs(train_bundle["pair_canon"], train_bundle["pair_mutated"], train_bundle["pair_labels"])
+    return model
 
 
 def train_pair_canonical(backbone: str, consistency_weight: float, args: argparse.Namespace, device: str, train_bundle: dict):
@@ -95,6 +118,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--channels", type=int, default=128)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--dropout", type=float, default=0.25)
+    parser.add_argument("--model-name", default="microsoft/codebert-base")
+    parser.add_argument("--codebert-epochs", type=int, default=2)
+    parser.add_argument("--codebert-batch-size", type=int, default=8)
+    parser.add_argument("--max-len", type=int, default=512)
+    parser.add_argument("--codebert-lr", type=float, default=1e-3)
+    parser.add_argument("--encoder-lr", type=float, default=2e-5)
+    parser.add_argument("--codebert-dropout", type=float, default=0.1)
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--local-files-only", dest="local_files_only", action="store_true", default=True)
     group.add_argument("--allow-download", dest="local_files_only", action="store_false")
@@ -127,7 +157,10 @@ def main() -> None:
 
         for cw in args.consistency_weights:
             print(f"\nseed={seed} backbone={args.backbone} consistency_weight={cw}  training…", flush=True)
-            model = train_pair_canonical(args.backbone, cw, args, device, train_bundle)
+            if args.backbone == "codebert":
+                model = train_pair_canonical_codebert(cw, args, device, train_bundle)
+            else:
+                model = train_pair_canonical(args.backbone, cw, args, device, train_bundle)
 
             # Clean eval
             clean_texts = [str(r["text"]) for r in clean_view]
