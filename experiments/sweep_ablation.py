@@ -62,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--splits-dir", default="data/splits")
     parser.add_argument("--pairs-dir", default="data/pairs")
-    parser.add_argument("--backbone", default="bilstm", choices=["textcnn", "bilstm"])
+    parser.add_argument("--backbone", default="bilstm", choices=["textcnn", "bilstm", "codebert"])
     parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33])
     parser.add_argument("--consistency-weights", nargs="+", type=float, default=CONSISTENCY_WEIGHTS)
     parser.add_argument("--attack-per-class", type=int, default=100)
