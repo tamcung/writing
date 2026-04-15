@@ -12,15 +12,6 @@ COMMON="--seeds $SEEDS --attack-per-class 300 --search-steps 20
         --max-tokens 256 --attack-search-group-size 128
         --allow-download --device cuda --resume"
 
-# ── Prepare splits and pairs for all seeds ────────────────────────────────────
-echo "=== Prepare splits ==="
-PYTHONUNBUFFERED=1 python -u experiments/prepare_splits.py \
-  --seeds $SEEDS
-
-echo "=== Prepare pairs ==="
-PYTHONUNBUFFERED=1 python -u experiments/prepare_pairs.py \
-  --seeds $SEEDS
-
 # ── Exp1: clean model baselines ───────────────────────────────────────────────
 echo "=== Exp1-A: clean models vs official_wafamole ==="
 PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
