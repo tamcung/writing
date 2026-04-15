@@ -128,7 +128,25 @@ def parse_args() -> argparse.Namespace:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--local-files-only", dest="local_files_only", action="store_true", default=True)
     group.add_argument("--allow-download", dest="local_files_only", action="store_false")
+    parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
+
+
+def load_resume_state(args: argparse.Namespace) -> tuple[list[dict], set[tuple], float]:
+    for path in [Path(str(args.output) + ".partial.json"), Path(args.output)]:
+        if not path.exists():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        rows = list(payload.get("rows", []))
+        completed = {
+            (int(r["seed"]), str(r["backbone"]), float(r["consistency_weight"]))
+            for r in rows
+        }
+        elapsed = float(payload.get("elapsed_seconds", 0.0))
+        print(f"Resuming from {path}: {len(completed)} completed, elapsed={elapsed:.1f}s")
+        return rows, completed, elapsed
+    print("Resume requested but no existing file found; starting fresh.")
+    return [], set(), 0.0
 
 
 def main() -> None:
@@ -136,11 +154,23 @@ def main() -> None:
     splits_dir = Path(args.splits_dir)
     device = resolve_device(args.device)
     started = time.time()
-    rows: list[dict] = []
+
+    if args.resume:
+        rows, completed, previous_elapsed = load_resume_state(args)
+    else:
+        rows, completed, previous_elapsed = [], set(), 0.0
 
     for seed in args.seeds:
         args.current_seed = seed
         set_seed(seed)
+
+        # Check if all CWs for this seed are already done before loading data
+        pending_cws = [cw for cw in args.consistency_weights
+                       if (seed, args.backbone, float(cw)) not in completed]
+        if not pending_cws:
+            print(f"seed={seed} backbone={args.backbone}: all CWs done, skipping")
+            continue
+
         train_rows = load_seed_split(splits_dir, seed, "train")
         clean_test_rows = load_seed_split(splits_dir, seed, "clean_test")
         benign_rows, sqli_rows = pick_attack_rows(clean_test_rows, args.attack_per_class, seed)
@@ -155,7 +185,7 @@ def main() -> None:
             "pair_labels": pair_labels,
         }
 
-        for cw in args.consistency_weights:
+        for cw in pending_cws:
             print(f"\nseed={seed} backbone={args.backbone} consistency_weight={cw}  training…", flush=True)
             if args.backbone == "codebert":
                 model = train_pair_canonical_codebert(cw, args, device, train_bundle)
@@ -206,6 +236,16 @@ def main() -> None:
                 print(f"  {op_set}: recall={adv_metrics['recall']:.4f} asr={asr:.4f}")
 
             rows.append(row)
+            completed.add((seed, args.backbone, float(cw)))
+
+            # Write partial checkpoint after each row
+            partial_path = Path(str(args.output) + ".partial.json")
+            partial_path.parent.mkdir(parents=True, exist_ok=True)
+            partial_path.write_text(json.dumps({
+                "config": vars(args),
+                "elapsed_seconds": round(previous_elapsed + time.time() - started, 1),
+                "rows": rows,
+            }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Summary table
     print("\n" + "=" * 70)
@@ -231,9 +271,13 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
         "config": vars(args),
-        "elapsed_seconds": round(time.time() - started, 1),
+        "elapsed_seconds": round(previous_elapsed + time.time() - started, 1),
         "rows": rows,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Remove partial file now that final file is written
+    partial_path = Path(str(args.output) + ".partial.json")
+    if partial_path.exists():
+        partial_path.unlink()
     print(f"\nWrote {len(rows)} rows to {out_path}")
 
 
