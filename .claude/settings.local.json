@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m 'Fix WAF-A-MoLE path depth after flattening experiments/formal/:*)",
+      "Bash(git push:*)",
+      "WebSearch",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:www.semanticscholar.org)",
+      "Bash(brew install:*)",
+      "Bash(pdftoppm --version)",
+      "Bash(pdftotext \"/Users/tansong/.claude/projects/-Users-tansong-Workspaces-writing/341078be-ebe5-4a5c-9ab4-851f8957d5aa/tool-results/webfetch-1776214548628-3c2fbs.pdf\" -)",
+      "Bash(pdftotext \"/Users/tansong/.claude/projects/-Users-tansong-Workspaces-writing/341078be-ebe5-4a5c-9ab4-851f8957d5aa/tool-results/webfetch-1776214557025-x2k6a1.pdf\" -)",
+      "Bash(python3:*)"
+    ]
+  }
+}
