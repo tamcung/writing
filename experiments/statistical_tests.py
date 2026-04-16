@@ -22,7 +22,7 @@ def load_exp2(path: Path, op_set: str) -> dict:
     # clean metrics per seed
     clean: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for row in d["rows"]:
-        if row["view_kind"] != "clean_attack_matched":
+        if row["view_kind"] != "clean":
             continue
         bb, method = row["backbone"], row["method"]
         clean[bb][method]["clean_recall"].append(row["metrics"]["recall"])
