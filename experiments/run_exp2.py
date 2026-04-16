@@ -204,8 +204,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
 
-    parser.add_argument("--train-operator-set", choices=["official_wafamole"], default="official_wafamole")
-    parser.add_argument("--attack-operator-set", choices=["official_wafamole", "advsqli"], default="official_wafamole")
+    parser.add_argument("--train-operator-set", choices=["wafamole"], default="wafamole")
+    parser.add_argument("--attack-operator-set", choices=["wafamole", "advsqli"], default="wafamole")
     parser.add_argument("--sqli-pairs-per-sample", type=int, default=1)
     parser.add_argument("--benign-pairs-per-sample", type=int, default=1)
     parser.add_argument("--mutation-rounds", type=int, default=7)

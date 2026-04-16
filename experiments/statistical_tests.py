@@ -124,14 +124,14 @@ def run_ablation_tests(path: Path, label: str) -> None:
     print(f"{'='*65}")
 
     baseline = groups[baseline_cw]
-    b_waf = [r["recall_official_wafamole"] for r in baseline]
+    b_waf = [r["recall_wafamole"] for r in baseline]
     b_adv = [r["recall_advsqli"] for r in baseline]
 
     for cw in cw_list:
         if cw == baseline_cw:
             continue
         rs = groups[cw]
-        a_waf = [r["recall_official_wafamole"] for r in rs]
+        a_waf = [r["recall_wafamole"] for r in rs]
         a_adv = [r["recall_advsqli"] for r in rs]
 
         results = []
@@ -148,11 +148,11 @@ def run_ablation_tests(path: Path, label: str) -> None:
 
 
 if __name__ == "__main__":
-    exp2_official = EXP_DIR / "results_exp2_official.json"
+    exp2_official = EXP_DIR / "results_exp2_wafamole.json"
     exp2_advsqli  = EXP_DIR / "results_exp2_advsqli.json"
 
     if exp2_official.exists():
-        run_exp2_tests(exp2_official, "official_wafamole", "Official WAF-A-MoLE")
+        run_exp2_tests(exp2_official, "wafamole", "Official WAF-A-MoLE")
     if exp2_advsqli.exists():
         run_exp2_tests(exp2_advsqli, "advsqli", "AdvSQLi")
 

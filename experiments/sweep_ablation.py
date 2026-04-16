@@ -28,7 +28,7 @@ from experiments.paired_models import PairSeqConfig, PairSequenceModel, PairCode
 from experiments.metrics import metrics_from_probs  # noqa: E402
 
 CONSISTENCY_WEIGHTS = [0.0, 0.01, 0.05, 0.1, 0.5, 1.0]
-ATTACK_OPERATOR_SETS = ["official_wafamole", "advsqli"]
+ATTACK_OPERATOR_SETS = ["wafamole", "advsqli"]
 
 
 def train_pair_canonical_codebert(consistency_weight: float, args: argparse.Namespace, device: str, train_bundle: dict):
@@ -103,7 +103,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mutation-rounds", type=int, default=7)
     parser.add_argument("--mutation-retries", type=int, default=8)
     parser.add_argument("--pair-max-chars", type=int, default=896)
-    parser.add_argument("--train-operator-set", default="official_wafamole")
+    parser.add_argument("--train-operator-set", default="wafamole")
     parser.add_argument("--require-pairs", action="store_true")
     parser.add_argument("--hard-align-gamma", type=float, default=0.5)
 
@@ -261,9 +261,9 @@ def main() -> None:
         print(
             f"{cw:6.3f}  "
             f"{np.mean([r['clean_recall'] for r in subset]):7.4f}  "
-            f"{np.mean([r['recall_official_wafamole'] for r in subset]):15.4f}  "
+            f"{np.mean([r['recall_wafamole'] for r in subset]):15.4f}  "
             f"{np.mean([r['recall_advsqli'] for r in subset]):14.4f}  "
-            f"{np.mean([r['asr_official_wafamole'] for r in subset]):12.4f}  "
+            f"{np.mean([r['asr_wafamole'] for r in subset]):12.4f}  "
             f"{np.mean([r['asr_advsqli'] for r in subset]):11.4f}"
         )
 

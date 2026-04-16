@@ -117,9 +117,9 @@ def summarize_ablation(path: Path, label: str) -> None:
         rs = groups[cw]
         cr_vals  = [r["clean_recall"] for r in rs]
         cf_vals  = [r["clean_f1"] for r in rs]
-        rw_vals  = [r["recall_official_wafamole"] for r in rs]
+        rw_vals  = [r["recall_wafamole"] for r in rs]
         ra_vals  = [r["recall_advsqli"] for r in rs]
-        aw_vals  = [1 - r["recall_official_wafamole"] for r in rs]
+        aw_vals  = [1 - r["recall_wafamole"] for r in rs]
         aa_vals  = [1 - r["recall_advsqli"] for r in rs]
         print(
             f"{cw:<6} "
@@ -136,18 +136,18 @@ def summarize_ablation(path: Path, label: str) -> None:
 
 if __name__ == "__main__":
     # Exp1
-    exp1_official = EXP_DIR / "results_exp1_official.json"
+    exp1_official = EXP_DIR / "results_exp1_wafamole.json"
     exp1_advsqli  = EXP_DIR / "results_exp1_advsqli.json"
     if exp1_official.exists():
-        summarize_exp1(exp1_official, "targeted_official_wafamole", "Official WAF-A-MoLE")
+        summarize_exp1(exp1_official, "targeted_wafamole", "Official WAF-A-MoLE")
     if exp1_advsqli.exists():
         summarize_exp1(exp1_advsqli, "targeted_advsqli", "AdvSQLi")
 
     # Exp2
-    exp2_official = EXP_DIR / "results_exp2_official.json"
+    exp2_official = EXP_DIR / "results_exp2_wafamole.json"
     exp2_advsqli  = EXP_DIR / "results_exp2_advsqli.json"
     if exp2_official.exists():
-        summarize_exp2(exp2_official, "targeted_official_wafamole", "Official WAF-A-MoLE")
+        summarize_exp2(exp2_official, "targeted_wafamole", "Official WAF-A-MoLE")
     if exp2_advsqli.exists():
         summarize_exp2(exp2_advsqli, "targeted_advsqli", "AdvSQLi")
 

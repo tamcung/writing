@@ -169,7 +169,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="experiments/formal/results_experiment1_targeted_attack.json")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
-    parser.add_argument("--operator-set", choices=["official_wafamole", "advsqli"], default="official_wafamole")
+    parser.add_argument("--operator-set", choices=["wafamole", "advsqli"], default="wafamole")
     parser.add_argument("--attack-per-class", type=int, default=300)
     parser.add_argument("--search-steps", type=int, default=20)
     parser.add_argument("--candidates-per-state", type=int, default=48)

@@ -13,11 +13,11 @@ COMMON="--seeds $SEEDS --attack-per-class 300 --search-steps 20
         --allow-download --device cuda --resume"
 
 # ── Exp1: clean model baselines ───────────────────────────────────────────────
-echo "=== Exp1-A: clean models vs official_wafamole ==="
+echo "=== Exp1-A: clean models vs wafamole ==="
 PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
   --backbones textcnn bilstm codebert \
-  --operator-set official_wafamole \
-  --output experiments/results_exp1_official.json \
+  --operator-set wafamole \
+  --output experiments/results_exp1_wafamole.json \
   $COMMON
 
 echo "=== Exp1-B: clean models vs advsqli ==="
@@ -28,15 +28,15 @@ PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
   $COMMON
 
 # ── Exp2: paired consistency training ─────────────────────────────────────────
-echo "=== Exp2-A: pair training vs official_wafamole ==="
+echo "=== Exp2-A: pair training vs wafamole ==="
 PYTHONUNBUFFERED=1 python -u experiments/run_exp2.py \
   --backbones textcnn bilstm codebert \
   --methods clean_ce pair_ce pair_canonical \
   --require-pairs \
-  --train-operator-set official_wafamole \
-  --attack-operator-set official_wafamole \
+  --train-operator-set wafamole \
+  --attack-operator-set wafamole \
   --codebert-lr 1e-4 \
-  --output experiments/results_exp2_official.json \
+  --output experiments/results_exp2_wafamole.json \
   $COMMON
 
 echo "=== Exp2-B: pair training vs advsqli (cross-operator) ==="
@@ -44,7 +44,7 @@ PYTHONUNBUFFERED=1 python -u experiments/run_exp2.py \
   --backbones textcnn bilstm codebert \
   --methods clean_ce pair_ce pair_canonical \
   --require-pairs \
-  --train-operator-set official_wafamole \
+  --train-operator-set wafamole \
   --attack-operator-set advsqli \
   --codebert-lr 1e-4 \
   --output experiments/results_exp2_advsqli.json \
