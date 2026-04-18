@@ -818,7 +818,10 @@ def _official_wafamole_operator_set() -> list[SqlMutationOperator]:
 
 
 def get_operator_set(name: str) -> list[SqlMutationOperator]:
-    if name == "official_wafamole":
+    # "wafamole" is the canonical short name used across run_exp*.py, sweep_ablation.py
+    # and summarize_results.py after commit 95e2308. "official_wafamole" is kept as an
+    # alias for backward compatibility with older result JSONs.
+    if name in ("wafamole", "official_wafamole"):
         return _official_wafamole_operator_set()
     if name not in OPERATOR_SETS:
         raise KeyError(f"unknown operator set: {name}")
