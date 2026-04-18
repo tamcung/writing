@@ -16,7 +16,7 @@ bash experiments/setup_exp1.sh   # 解压数据 + clone WAF-A-MoLE
 ```bash
 PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
   --backbones word_svc textcnn bilstm codebert \
-  --seeds 11 22 33 \
+  --seeds 11 22 33 44 55 \
   --operator-set official_wafamole \
   --attack-per-class 300 \
   --search-steps 20 \
@@ -35,7 +35,7 @@ PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
 ```bash
 PYTHONUNBUFFERED=1 python -u experiments/run_exp1.py \
   --backbones word_svc textcnn bilstm codebert \
-  --seeds 11 22 33 \
+  --seeds 11 22 33 44 55 \
   --operator-set advsqli \
   --attack-per-class 300 \
   --search-steps 20 \
@@ -64,7 +64,7 @@ bash experiments/setup_exp2.sh
 PYTHONUNBUFFERED=1 python -u experiments/run_exp2.py \
   --backbones textcnn bilstm codebert \
   --methods clean_ce pair_ce pair_canonical \
-  --seeds 11 22 33 \
+  --seeds 11 22 33 44 55 \
   --require-pairs \
   --train-operator-set official_wafamole \
   --attack-operator-set official_wafamole \
@@ -87,7 +87,7 @@ PYTHONUNBUFFERED=1 python -u experiments/run_exp2.py \
 PYTHONUNBUFFERED=1 python -u experiments/run_exp2.py \
   --backbones textcnn bilstm codebert \
   --methods clean_ce pair_ce pair_canonical \
-  --seeds 11 22 33 \
+  --seeds 11 22 33 44 55 \
   --require-pairs \
   --train-operator-set official_wafamole \
   --attack-operator-set advsqli \
@@ -112,7 +112,7 @@ PYTHONUNBUFFERED=1 python -u experiments/run_exp2.py \
 ```bash
 PYTHONUNBUFFERED=1 python -u experiments/sweep_ablation.py \
   --backbone bilstm \
-  --seeds 11 22 33 \
+  --seeds 11 22 33 44 55 \
   --attack-per-class 100 \
   --search-steps 20 \
   --candidates-per-state 48 \
