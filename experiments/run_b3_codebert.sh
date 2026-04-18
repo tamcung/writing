@@ -25,7 +25,6 @@ COMMON=(
   --batch-size 128
   --max-tokens 256
   --codebert-lr 1e-4
-  --allow-download
   --device cuda
   --resume
 )
