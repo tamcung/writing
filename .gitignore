@@ -13,6 +13,9 @@ __pycache__/
 venv/
 env/
 
+# Plugin source (installed separately)
+.research-writing-skill/
+
 # Data and third-party checkouts are synced separately.
 data/raw/
 data/processed/
@@ -28,6 +31,11 @@ experiments/*.partial.json
 *.tar
 *.tar.gz
 *.zip
+# Exception: experiment input bundles are small (11MB+5.7MB) and are synced
+# via the repo so that RunPod / CI can run `setup_exp{1,2}.sh` directly after
+# `git clone` without a separate rsync step.
+!experiment1_inputs.tar.gz
+!experiment2_inputs.tar.gz
 
 # Model checkpoints and binary artifacts
 *.pt
@@ -37,3 +45,10 @@ experiments/*.partial.json
 *.dump
 *.joblib
 *.pkl
+*.tsbuildinfo
+
+# System build outputs
+system/backend/storage/
+system/frontend/node_modules/
+system/frontend/dist/
+system/runtime/
