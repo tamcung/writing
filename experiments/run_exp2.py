@@ -41,6 +41,34 @@ from experiments.run_exp1 import (  # noqa: E402
     pick_attack_rows,
     summarize_attack_rows,
 )
+from system.backend.app.services.serialization import (  # noqa: E402
+    save_clean_codebert_checkpoint,
+    save_clean_sequence_checkpoint,
+    save_pair_codebert_checkpoint,
+    save_pair_sequence_checkpoint,
+)
+
+
+def save_model_checkpoint(
+    model,
+    backbone: str,
+    method: str,
+    metrics: dict[str, float],
+    checkpoint_dir: Path,
+) -> Path:
+    """Persist a trained model under {checkpoint_dir}/{backbone}_{method}.pt."""
+    ckpt_path = checkpoint_dir / f"{backbone}_{method}.pt"
+    if backbone in {"textcnn", "bilstm"} and method == "clean_ce":
+        save_clean_sequence_checkpoint(ckpt_path, backbone, method, model, metrics)
+    elif backbone in {"textcnn", "bilstm"}:
+        save_pair_sequence_checkpoint(ckpt_path, backbone, method, model, metrics)
+    elif backbone == "codebert" and method == "clean_ce":
+        save_clean_codebert_checkpoint(ckpt_path, backbone, method, model, metrics)
+    elif backbone == "codebert":
+        save_pair_codebert_checkpoint(ckpt_path, backbone, method, model, metrics)
+    else:
+        raise ValueError(f"No checkpoint saver for backbone={backbone} method={method}")
+    return ckpt_path
 
 
 def build_pair_model(backbone: str, method: str, args: argparse.Namespace, device: str):
@@ -253,6 +281,13 @@ def parse_args() -> argparse.Namespace:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--local-files-only", dest="local_files_only", action="store_true", default=True)
     group.add_argument("--allow-download", dest="local_files_only", action="store_false")
+
+    parser.add_argument("--save-checkpoints", action="store_true",
+                        help="Persist trained models to --checkpoint-dir for system deployment.")
+    parser.add_argument("--checkpoint-dir", default="system/backend/storage/checkpoints",
+                        help="Directory to write {backbone}_{method}.pt files when --save-checkpoints is set.")
+    parser.add_argument("--skip-attack", action="store_true",
+                        help="Skip beam-search adversarial evaluation; useful when only training checkpoints are needed.")
     return parser.parse_args()
 
 
@@ -327,6 +362,35 @@ def main() -> None:
                     f"recall={clean_eval['metrics']['recall']:.4f} "
                     f"p10={clean_eval['metrics']['p10_sqli_prob']:.4f}"
                 )
+
+                if args.save_checkpoints:
+                    ckpt_dir = Path(args.checkpoint_dir)
+                    ckpt_dir.mkdir(parents=True, exist_ok=True)
+                    persist_metrics = {
+                        k: float(v)
+                        for k, v in clean_eval["metrics"].items()
+                        if isinstance(v, (int, float))
+                    }
+                    ckpt_path = save_model_checkpoint(
+                        model=model,
+                        backbone=backbone,
+                        method=method,
+                        metrics=persist_metrics,
+                        checkpoint_dir=ckpt_dir,
+                    )
+                    print(f"  saved checkpoint -> {ckpt_path}")
+
+                if args.skip_attack:
+                    print(f"  skip-attack: bypassing beam search for {backbone}/{method}")
+                    write_partial_output(
+                        args=args,
+                        started=started,
+                        rows=rows,
+                        attack_rows=attack_rows,
+                        pair_rows=pair_rows,
+                        completed={"seed": seed, "backbone": backbone, "method": method},
+                    )
+                    continue
 
                 print(
                     f"  targeted search operator_set={args.attack_operator_set} "
